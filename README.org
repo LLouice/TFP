@@ -1,5 +1,9 @@
 #+title: TFP
 
+* External
+  [[][STTN]]
+  [[][Informer]]
+
 * Data
 
 ** METR-LA
@@ -17,3 +21,24 @@
     val x:  (5209, 12, 325, 2) y: (5209, 12, 325, 2)
     test x:  (10419, 12, 325, 2) y: (10419, 12, 325, 2)
    #+end_example
+
+
+* TODO Make Mode [0%]
+
+** TODO Encoder [/]
+*** TODO Attention
+**** Matrix Similarity
+*** TODO FFN
+
+** TODO Decoder
+** Mask
+** General output?
+
+* STTN
+  - Dynamic GNN based on transformer
+  - General output?
+* Informer
+  - ProbSparse Transformer
+  - General output?(Encoder and Decoder, Masked MHA)
+  - Attention Distill
+  - start token / position embedding etc.
