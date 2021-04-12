@@ -5,8 +5,8 @@ import time
 import util
 from engine import Trainer
 import os
-from durbango import pickle_save
-from fastprogress import progress_bar
+# from durbango import pickle_save
+# from fastprogress import progress_bar
 
 from model import GWNet
 from util import calc_tstep_metrics
@@ -18,7 +18,7 @@ def main(args, **model_kwargs):
     data = util.load_dataset(args.data, args.batch_size, args.batch_size, args.batch_size, n_obs=args.n_obs, fill_zeroes=args.fill_zeroes)
     scaler = data['scaler']
     aptinit, supports = util.make_graph_inputs(args, device)
-
+    '''
     model = GWNet.from_args(args, device, supports, aptinit, **model_kwargs)
     if args.checkpoint:
         model.load_checkpoint(torch.load(args.checkpoint))
@@ -67,6 +67,7 @@ def main(args, **model_kwargs):
     test_met_df, yhat = calc_tstep_metrics(engine.model, device, data['test_loader'], scaler, realy, args.seq_length)
     test_met_df.round(6).to_csv(os.path.join(args.save, 'test_metrics.csv'))
     print(summary(args.save))
+    '''
 
 def eval_(ds, device, engine):
     """Run validation."""
@@ -100,8 +101,9 @@ if __name__ == "__main__":
     t1 = time.time()
     if not os.path.exists(args.save):
         os.mkdir(args.save)
-    pickle_save(args, f'{args.save}/args.pkl')
+    print(args)
+    # pickle_save(args, f'{args.save}/args.pkl')
     main(args)
-    t2 = time.time()
-    mins = (t2 - t1) / 60
-    print(f"Total time spent: {mins:.2f} seconds")
+    # t2 = time.time()
+    # mins = (t2 - t1) / 60
+    # print(f"Total time spent: {mins:.2f} seconds")
