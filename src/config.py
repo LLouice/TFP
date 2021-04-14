@@ -6,14 +6,6 @@ class Config():
     def __init__(self):
         parser = argparse.ArgumentParser()
 
-        # "template"
-        parser.add_argument("--foo", type=int, default=7)
-        parser.add_argument("--bar", type=str, default="bar")
-        parser.add_argument("--bool",
-                            type=str,
-                            default="false",
-                            choices=["true", "false"])
-
         # "train params"
         sub_parser = parser.add_argument_group("train")
         sub_parser.add_argument("--epos", type=int, default=300)

@@ -39,8 +39,8 @@ class Net(pl.LightningModule):
         self.scaler = scaler
         self._logger = logger
 
-        self.model = GWNet(args.N,
-                           args.device,
+        self.model = GWNet(args.device,
+                           args.N,
                            dropout=args.dropout,
                            supports=supports,
                            do_graph_conv=args.do_graph_conv,
@@ -54,6 +54,12 @@ class Net(pl.LightningModule):
                            skip_channels=args.nhid * 8,
                            end_channels=args.nhid * 16,
                            cat_feat_gc=args.cat_feat_gc)
+
+        for name, param in self.model.named_parameters():
+            if "conv" in name and "weight" in name:
+                torch.nn.init.xavier_normal_(param)
+            if "bias" in name:
+                torch.nn.init.zeros_(param)
 
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -206,8 +212,7 @@ class Net(pl.LightningModule):
                                         weight_decay=self.hparams.wd,
                                         momentum=0.9)
         scheduler = torch.optim.lr_scheduler.LambdaLR(
-            optimizer,
-            lr_lambda=lambda epoch: self.hparams.lr_decay ** epoch)
+            optimizer, lr_lambda=lambda epoch: self.hparams.lr_decay**epoch)
         return dict(optimizer=optimizer, lr_scheduler=scheduler)
 
 
@@ -244,10 +249,10 @@ def main():
     # "checkpoint"
     checkpoint_callback = ModelCheckpoint(
         dirpath=os.path.join(os.getcwd(), "runs/ckpts"),
-        filename=conf.exp + "/{epoch}-{val_acc:.4f}",
+        filename=conf.exp + "/{epoch}-{val_mae:.4f}",
         save_top_k=1,
         verbose=True,
-        monitor='val/mse',  # TODO: the name ?
+        monitor='val/mae',  # TODO: the name ?
         mode='min',
     )
 
@@ -257,7 +262,7 @@ def main():
         name=conf.exp,
     )
 
-    early_stopping = EarlyStopping(monitor='val/mse',
+    early_stopping = EarlyStopping(monitor='val/mae',
                                    patience=5,
                                    strict=False,
                                    verbose=False,
@@ -283,6 +288,7 @@ def main():
         progress_bar_refresh_rate=conf.pb_rate,
         distributed_backend=distributed_backend,
         logger=tb_logger,
+        gradient_clip_val=3.0,
         callbacks=[early_stopping],
         # resume_from_checkpoint="ckpts/foo.ckpt"
     )

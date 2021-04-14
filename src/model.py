@@ -15,6 +15,11 @@ class GraphConvNet(nn.Module):
         self.final_conv = Conv2d(c_in, c_out, (1, 1), padding=(0, 0), stride=(1, 1), bias=True)
         self.dropout = dropout
         self.order = order
+        self._init_parameters()
+
+    def _init_parameters(self):
+        nn.init.xavier_normal_(self.final_conv.weight.data)
+
 
     def forward(self, x, support: list):
         out = [x]
@@ -96,6 +101,7 @@ class GWNet(nn.Module):
 
         self.end_conv_1 = Conv2d(skip_channels, end_channels, (1, 1), bias=True)
         self.end_conv_2 = Conv2d(end_channels, out_dim, (1, 1), bias=True)
+
 
     @staticmethod
     def svd_init(apt_size, aptinit):
@@ -184,8 +190,3 @@ class GWNet(nn.Module):
         x = F.relu(self.end_conv_1(x))
         x = self.end_conv_2(x)  # downsample to (bs, seq_length, 207, nfeatures)
         return x
-
-
-
-
-

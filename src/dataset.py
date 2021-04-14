@@ -42,8 +42,8 @@ def load_dataset(dataset_dir,
     data = {}
     for category in ['train', 'val', 'test']:
         cat_data = np.load(os.path.join(dataset_dir, category + '.npz'))
-        data['x_' + category] = cat_data['x']
-        data['y_' + category] = cat_data['y']
+        data['x_' + category] = cat_data['x'].astype("float32")
+        data['y_' + category] = cat_data['y'].astype("float32")
         if n_obs is not None:
             data['x_' + category] = data['x_' + category][:n_obs]
             data['y_' + category] = data['y_' + category][:n_obs]
