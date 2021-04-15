@@ -223,7 +223,8 @@ class GWNet(nn.HybridBlock):
         if in_len < self.receptive_field:
             x = np.pad(x,
                        mode="constant",
-                       pad_width=(self.receptive_field - in_len, 0, 0, 0))
+                       pad_width=((0, 0), (0, 0), (0, 0),
+                                  (self.receptive_field - in_len, 0)))
         if self.cat_feat_gc:
             f1, f2 = x[:, [0]], x[:, 1:]
             x1 = self.start_conv(f1)
@@ -285,17 +286,22 @@ class GWNet(nn.HybridBlock):
 
 
 def test_gwnet():
-    (b, c, n, t) = (12, 8, 5, 13)
+    (b, c, n, t) = (64, 8, 5, 12)
     x = np.random.randn(b, c, n, t)
     A = np.random.randn(n, n)
+    labels = np.random.randn(b, t, n, 1)
 
     model = GWNet(n, supports=[A])
     model.initialize()
     print(model)
-    output = model(x)  # B, T, N, C
-    print(output.shape)
     model.hybridize()
-    output = model(x)  # B, T, N, C
+    from loss import MAELoss
+    loss_fn = MAELoss()
+    with autograd.record():
+        output = model(x)  # B, T, N, C
+        loss = loss_fn(output, labels)
+        print(loss.asscaler())
+        loss.backward()
     print(output.shape)
 
 

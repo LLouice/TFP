@@ -1,15 +1,13 @@
+import os
 import argparse
 import pickle
 import numpy as npo
-import os
 
-from mxnet import np, use_np, npx
+from mxnet import np
+
 import pandas as pd
 import scipy.sparse as sp
 from scipy.sparse import linalg
-
-npx.set_np()
-
 
 
 class StandardScaler():
@@ -150,7 +148,6 @@ def load_dataset(dataset_dir,
     return data
 
 
-
 # TODO: port this
 def calc_tstep_metrics(model, device, test_loader, scaler, realy,
                        seq_length) -> pd.DataFrame:
@@ -259,44 +256,3 @@ def get_shared_arg_parser():
     parser.add_argument('--fill_zeroes', action='store_true')
     parser.add_argument('--checkpoint', type=str, help='')
     return parser
-
-
-
-
-
-@use_np
-def calc_metrics(preds, labels, null_val=0.):
-    if np.isnan(null_val):
-        mask = ~np.isnan(labels)
-    else:
-        mask = np.not_equal(labels, null_val)
-
-    mask = mask.astype("float32")
-    mask /= np.mean(mask)
-
-    mae = np.abs(preds - labels)
-    mse = (preds - labels)**2
-    mape = mae / labels
-
-    mae, mape, mse = [mask_and_fillna(l, mask) for l in [mae, mape, mse]]
-    rmse = np.sqrt(mse)
-
-    return mae, mape, rmse
-
-
-@use_np
-def mask_and_fillna(loss, mask):
-    loss = loss * mask
-    return np.mean(np.nan_to_num(loss))
-
-
-def test_loss():
-    preds = np.random.uniform(size=(4, ))
-    labels = np.random.randint(0, 2, size=(4, ))
-    print(labels)
-    mae, mape, rmse = calc_metrics(preds, labels)
-    print(mae, mape, rmse)
-
-
-if __name__ == '__main__':
-    test_loss()
