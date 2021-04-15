@@ -155,6 +155,68 @@ class GWNet(nn.HybridBlock):
             self.end_conv_1 = nn.Conv2D(end_channels, (1, 1))
             self.end_conv_2 = nn.Conv2D(out_dim, (1, 1))
 
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+        _ADJ_CHOICES = [
+            'scalap', 'normlap', 'symnadj', 'transition', 'identity'
+        ]
+        parser = parent_parser.add_argument_group("GWNet")
+        parser.add_argument('--data',
+                            type=str,
+                            default='data/METR-LA',
+                            help='data path')
+        parser.add_argument('--adjdata',
+                            type=str,
+                            default='data/sensor_graph/adj_mx.pkl',
+                            help='adj data path')
+        parser.add_argument('--adjtype',
+                            type=str,
+                            default='doubletransition',
+                            help='adj type',
+                            choices=_ADJ_CHOICES)
+        parser.add_argument('--do_graph_conv',
+                            action='store_true',
+                            help='whether to add graph convolution layer')
+        parser.add_argument('--aptonly',
+                            action='store_true',
+                            help='whether only adaptive adj')
+        parser.add_argument('--addaptadj',
+                            action='store_true',
+                            help='whether add adaptive adj')
+        parser.add_argument('--randomadj',
+                            action='store_true',
+                            help='whether random initialize adaptive adj')
+        parser.add_argument('--seq_length', type=int, default=12, help='')
+        parser.add_argument('--nhid',
+                            type=int,
+                            default=40,
+                            help='Number of channels for internal conv')
+        parser.add_argument('--in_dim',
+                            type=int,
+                            default=2,
+                            help='inputs dimension')
+        parser.add_argument('--num_nodes',
+                            type=int,
+                            default=207,
+                            help='number of nodes')
+        parser.add_argument('--batch_size',
+                            type=int,
+                            default=64,
+                            help='batch size')
+        parser.add_argument('--dropout',
+                            type=float,
+                            default=0.3,
+                            help='dropout rate')
+        parser.add_argument(
+            '--n_obs',
+            default=None,
+            help='Only use this many observations. For unit testing.')
+        parser.add_argument('--apt_size', default=10, type=int)
+        parser.add_argument('--cat_feat_gc', action='store_true')
+        parser.add_argument('--fill_zeroes', action='store_true')
+        parser.add_argument('--checkpoint', type=str, help='')
+        return parent_parser
+
     def forward(self, x):
         # Input shape is (bs, features, n_nodes, n_timesteps)
         in_len = x.shape[3]
