@@ -34,10 +34,13 @@ class GraphConvNet(nn.HybridBlock):
         super(GraphConvNet, self).__init__()
         self.order = order
         with self.name_scope():
-            self.final_conv = nn.Conv2D(c_out, (1, 1),
-                                        padding=(0, 0),
-                                        strides=(1, 1),
-                                        use_bias=True)
+            self.final_conv = nn.Conv2D(
+                c_out,
+                (1, 1),
+                padding=(0, 0),
+                strides=(1, 1),
+                use_bias=True,
+            )
             self.dropout = nn.Dropout(dropout)
 
     def forward(self, x, support: list):
@@ -65,6 +68,7 @@ def test_gcn():
     model.initialize()
     output = model(x, [A])
     print(output.shape)
+    print(model.summary(x, [A]))
 
 
 @use_np
@@ -76,6 +80,7 @@ class GWNet(nn.HybridBlock):
                  do_graph_conv=True,
                  addaptadj=True,
                  aptinit=None,
+                 in_dim=2,
                  out_dim=12,
                  residual_channels=32,
                  dilation_channels=32,
@@ -98,13 +103,16 @@ class GWNet(nn.HybridBlock):
             if self.cat_feat_gc:
                 self.start_conv = nn.Conv2D(  # hard code to avoid errors
                     residual_channels,
-                    kernel_size=(1, 1))
+                    kernel_size=(1, 1),
+                    in_channels=1)
 
                 self.cat_feature_conv = nn.Conv2D(residual_channels,
-                                                  kernel_size=(1, 1))
+                                                  kernel_size=(1, 1),
+                                                  in_channels=1)
             else:
                 self.start_conv = nn.Conv2D(residual_channels,
-                                            kernel_size=(1, 1))
+                                            kernel_size=(1, 1),
+                                            in_channels=in_dim)
 
             self.fixed_supports = supports or []
             receptive_field = 1
@@ -118,21 +126,29 @@ class GWNet(nn.HybridBlock):
                                                 shape=(num_nodes, apt_size))
                 self.supports_len += 1
 
-            depth = list(range(blocks * layers))
+            depth = blocks * layers
 
             # 1x1 convolution for residual and skip connections (slightly different see docstring)
             self.residual_convs = nn.HybridSequential()
             self.skip_convs = nn.HybridSequential()
             self.bn = nn.HybridSequential()
             self.graph_convs = nn.HybridSequential()
-            for _ in depth:
-                self.residual_convs.add(nn.Conv2D(residual_channels, (1, 1)))
-                self.skip_convs.add(nn.Conv2D(skip_channels, (1, 1)))
-                self.bn.add(nn.BatchNorm())
-                self.graph_convs.add(
-                    GraphConvNet(residual_channels,
-                                 dropout,
-                                 support_len=self.supports_len))
+            for i in range(depth):
+                self.skip_convs.add(
+                    nn.Conv2D(skip_channels, (1, 1),
+                              in_channels=dilation_channels,
+                              prefix="skip_{}_".format(i)))
+                if i != depth - 1:
+                    if not self.do_graph_conv:
+                        self.residual_convs.add(
+                            nn.Conv2D(residual_channels, (1, 1),
+                                    in_channels=dilation_channels,
+                                    prefix="residual_{}_".format(i)))
+                    self.bn.add(nn.BatchNorm(in_channels=residual_channels))
+                    self.graph_convs.add(
+                        GraphConvNet(residual_channels,
+                                     dropout,
+                                     support_len=self.supports_len))
 
             self.filter_convs = nn.HybridSequential()
             self.gate_convs = nn.HybridSequential()
@@ -143,17 +159,23 @@ class GWNet(nn.HybridBlock):
                     # dilated convolutions
                     self.filter_convs.add(
                         nn.Conv2D(dilation_channels, (1, kernel_size),
-                                  dilation=D))
+                                  dilation=D,
+                                  in_channels=residual_channels,
+                                  prefix="filter{}_{}_".format(b, i)))
                     self.gate_convs.add(
                         nn.Conv2D(dilation_channels, (1, kernel_size),
-                                  dilation=D))
+                                  dilation=D,
+                                  in_channels=residual_channels,
+                                  prefix="gate{}_{}_".format(b, i)))
                     D *= 2
                     receptive_field += additional_scope
                     additional_scope *= 2
             self.receptive_field = receptive_field
 
-            self.end_conv_1 = nn.Conv2D(end_channels, (1, 1))
-            self.end_conv_2 = nn.Conv2D(out_dim, (1, 1))
+            self.end_conv_1 = nn.Conv2D(end_channels, (1, 1),
+                                        in_channels=skip_channels)
+            self.end_conv_2 = nn.Conv2D(out_dim, (1, 1),
+                                        in_channels=end_channels)
 
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -260,12 +282,14 @@ class GWNet(nn.HybridBlock):
             gate = npx.sigmoid(self.gate_convs[i](residual))
             x = filter * gate
             # parametrized skip connection
+            print(i)
             s = self.skip_convs[i](x)  # what are we skipping??
             try:  # if i > 0 this works
                 skip = skip[:, :, :, -s.size(3):]  # TODO(SS): Mean/Max Pool?
             except:
                 skip = 0
             skip = s + skip
+
             if i == (self.blocks * self.layers -
                      1):  # last X getting ignored anyway
                 break
@@ -294,6 +318,7 @@ def test_gwnet():
     model = GWNet(n, supports=[A])
     model.initialize()
     print(model)
+    print(model.summary(x))
     model.hybridize()
     from loss import MAELoss
     loss_fn = MAELoss()

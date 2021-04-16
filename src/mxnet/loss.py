@@ -23,4 +23,4 @@ class MAELoss(Loss):
 
         mae = np.abs(preds - labels)
         mae = mae * mask
-        return np.mean(np.nan_to_num(mae))
+        return np.mean(np.nan_to_num(mae), axis=(1,2,3))

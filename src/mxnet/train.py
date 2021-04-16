@@ -4,7 +4,7 @@ import time
 
 from mxnet import np, npx, init, gluon, autograd
 from mxnet.gluon.contrib.estimator import estimator
-from mxnet.gluon.contrib.estimator.event_handler import TrainBegin, TrainEnd, EpochEnd, CheckpointHandler
+from mxnet.gluon.contrib.estimator.event_handler import TrainBegin, TrainEnd, EpochEnd, BatchEnd, CheckpointHandler
 
 import utils
 from model import GWNet
@@ -20,6 +20,34 @@ npx.set_np()
 # from exp_results import summary
 class Learner():
     pass
+
+
+class MyGradientUpdateHandler(BatchEnd):
+    """Gradient Update Handler that apply gradients on network weights
+
+    :py:class:`GradientUpdateHandler` takes the priority level. It updates weight parameters
+    at the end of each batch
+
+    Parameters
+    ----------
+    priority : scalar, default -2000
+        priority level of the gradient update handler. Priority level is sorted in ascending
+        order. The lower the number is, the higher priority level the handler is.
+    """
+    def __init__(self, priority=-2000):
+        self.priority = priority
+
+    def batch_end(self, estimator, *args, **kwargs):
+        loss = kwargs['loss']
+        batch_size = 0
+        if not isinstance(loss, list):
+            loss = [loss]
+        if isinstance(loss, list):
+            for l in loss:
+                batch_size += l.shape[0]
+
+        estimator.trainer.step(batch_size, ignore_stale_grad=True)
+
 
 
 def main():
@@ -58,6 +86,18 @@ def main():
         apt_size=10)
 
     model.initialize(init=init.Xavier(), ctx=npx.cpu())
+    print(model)
+
+    for x, y in dl_trn:
+        model(x)
+        print(model.summary(x))
+        break
+
+    # model.hybridize()
+
+    for x, y in dl_trn:
+        model(x)
+        break
 
     loss_fn = MAELoss(scaler=dm.scaler)
     # loss_fn = MAELoss()
@@ -89,7 +129,7 @@ def main():
     # with warnings.catch_warnings():
     #     warnings.simplefilter("ignore")
     # Magic line
-    # est.fit(train_data=dl_trn, epochs=1)
+    est.fit(train_data=dl_trn, val_data=dl_val, epochs=1)
 
 
 if __name__ == "__main__":
