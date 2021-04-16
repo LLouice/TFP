@@ -4,7 +4,7 @@ import time
 
 from mxnet import np, npx, init, gluon, autograd
 from mxnet.gluon.contrib.estimator import estimator
-from mxnet.gluon.contrib.estimator.event_handler import TrainBegin, TrainEnd, EpochEnd, BatchEnd, CheckpointHandler
+from mxnet.gluon.contrib.estimator.event_handler import CheckpointHandler
 
 import utils
 from model import GWNet
@@ -12,42 +12,9 @@ from config import Config
 from data import DataModule
 from loss import MAELoss
 from metric import get_mae_metric, get_mape_metric, get_rmse_metric
+from callback import MyGradientUpdateHandler, MyMetricHandler
 
 npx.set_np()
-
-
-# from util import calc_tstep_metrics
-# from exp_results import summary
-class Learner():
-    pass
-
-
-class MyGradientUpdateHandler(BatchEnd):
-    """Gradient Update Handler that apply gradients on network weights
-
-    :py:class:`GradientUpdateHandler` takes the priority level. It updates weight parameters
-    at the end of each batch
-
-    Parameters
-    ----------
-    priority : scalar, default -2000
-        priority level of the gradient update handler. Priority level is sorted in ascending
-        order. The lower the number is, the higher priority level the handler is.
-    """
-    def __init__(self, priority=-2000):
-        self.priority = priority
-
-    def batch_end(self, estimator, *args, **kwargs):
-        loss = kwargs['loss']
-        batch_size = 0
-        if not isinstance(loss, list):
-            loss = [loss]
-        if isinstance(loss, list):
-            for l in loss:
-                batch_size += l.shape[0]
-
-        estimator.trainer.step(batch_size, ignore_stale_grad=True)
-
 
 
 def main():
@@ -88,31 +55,22 @@ def main():
     model.initialize(init=init.Xavier(), ctx=npx.cpu())
     print(model)
 
-    for x, y in dl_trn:
-        model(x)
-        print(model.summary(x))
-        break
+    # for x, y in dl_trn:
+    #     model(x)
+    #     print(model.summary(x))
+    #     break
 
     # model.hybridize()
 
-    for x, y in dl_trn:
-        model(x)
-        break
+    # for x, y in dl_trn:
+    #     model(x)
+    #     break
 
     loss_fn = MAELoss(scaler=dm.scaler)
     # loss_fn = MAELoss()
 
-    trainer = gluon.Trainer(model.collect_params(), 'adam',
+    trainer = gluon.Trainer(model.collect_params(), 'adamw',
                             {'learning_rate': conf.lr})  # Trainer
-
-    # for x, y in dl_trn:
-    #     print(x.shape)
-    #     print(y.shape)
-    #     with autograd.record():
-    #         loss = loss_fn(model(x, ), y)
-    #     loss.backward()
-    #     print("loss:", loss)
-    #     break
 
     est = estimator.Estimator(net=model,
                               loss=loss_fn,
@@ -129,28 +87,17 @@ def main():
     # with warnings.catch_warnings():
     #     warnings.simplefilter("ignore")
     # Magic line
-    est.fit(train_data=dl_trn, val_data=dl_val, epochs=1)
+    est.fit(train_data=dl_trn,
+            val_data=dl_val,
+            epochs=1,
+            event_handler=[
+                MyGradientUpdateHandler(),
+                MyMetricHandler(get_mae_metric(dm.scaler, -1000)),
+                MyMetricHandler(get_mape_metric(dm.scaler, -1001)),
+                MyMetricHandler(get_rmse_metric(dm.scaler, -1002)),
+            ])
 
 
 if __name__ == "__main__":
     main()
-    # parser = util.get_shared_arg_parser()
-    # parser.add_argument('--epochs', type=int, default=100, help='')
-    # parser.add_argument('--clip', type=int, default=3, help='Gradient Clipping')
-    # parser.add_argument('--weight_decay', type=float, default=0.0001, help='weight decay rate')
-    # parser.add_argument('--learning_rate', type=float, default=0.001, help='learning rate')
-    # parser.add_argument('--lr_decay_rate', type=float, default=0.97, help='learning rate')
-    # parser.add_argument('--save', type=str, default='experiment', help='save path')
-    # parser.add_argument('--n_iters', default=None, help='quit after this many iterations')
-    # parser.add_argument('--es_patience', type=int, default=20, help='quit if no improvement after this many iterations')
-
-    # args = parser.parse_args()
-    # t1 = time.time()
-    # if not os.path.exists(args.save):
-    #     os.mkdir(args.save)
-    # print(args)
-    # # pickle_save(args, f'{args.save}/args.pkl')
-    # main(args)
-    # # t2 = time.time()
-    # # mins = (t2 - t1) / 60
-    # # print(f"Total time spent: {mins:.2f} seconds")
+    #TODO clip wd lr lr_decay true evaluate
