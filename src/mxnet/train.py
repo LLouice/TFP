@@ -3,7 +3,7 @@
 import time
 
 import mxnet as mx
-from mxnet import np, npx, init, gluon, autograd
+from mxnet import nd, init, gluon, autograd
 from mxnet.gluon.contrib.estimator import estimator
 from mxnet.gluon.contrib.estimator.event_handler import CheckpointHandler
 
@@ -15,8 +15,6 @@ from loss import MAELoss
 from metric import get_val_metrics
 from callback import MyGradientUpdateHandler, MyMetricHandler
 
-npx.set_np()
-
 
 def main():
     config = Config()
@@ -25,7 +23,7 @@ def main():
     conf = config.get_config(parser)
     print(conf)
 
-    ctx = npx.cpu() if conf.device == "cpu" else npx.gpu()
+    ctx = mx.cpu() if conf.device == "cpu" else mx.gpu()
     # gpu_count = mx.context.num_gpus()
     # ctx = [npx.gpu(i)
     #        for i in range(gpu_count)] if gpu_count > 0 else npx.cpu()

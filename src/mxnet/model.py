@@ -1,34 +1,43 @@
 import mxnet as mx
-from mxnet import np, npx, autograd, gluon
-from mxnet import use_np
+from mxnet import nd, autograd, gluon
 from mxnet.gluon import nn, Trainer
 from mxnet.gluon.data import Dataset, DataLoader
 
-# npx.set_np()
 
 
-@use_np
-def nconv(x, A):
-    return np.einsum('ncvl,vw->ncwl', x, A)
+class NConv(nn.HybridBlock):
+    '''
+    einsum: B C N T  N N' => B C N' T
+    # return nd.einsum('ncvl,vw->ncwl', x, A)
+    dot: B C T N N N' => B C T N'
+    '''
+    def __init__(self):
+        super(NConv, self).__init__()
+
+    def hybrid_forward(self, F, x, A):
+        return F.transpose(F.dot(F.transpose(x, axes=(0,1,3,2)), A), axes=(0,1,3,2))
+
 
 
 def test_nconv():
     (b, c, n, t) = (12, 8, 5, 7)
-    x = np.random.randn(b, c, n, t)
-    A = np.random.randn(n, n)
+    x = nd.random.randn(b, c, n, t)
+    A = nd.random.randn(n, n)
 
     x.attach_grad()
     A.attach_grad()
 
+    model = NConv()
+
     with autograd.record():
-        output = nconv(x, A).sum()
-        output.backward()
+        output = model(x, A)
+        print(output.shape)
+        output = output.sum()
+    output.backward()
     print(x.grad.shape)
     print(A.grad.shape)
-    print(A)
 
 
-@use_np
 class GraphConvNet(nn.HybridBlock):
     def __init__(self, c_out, dropout, support_len=3, order=2):
         super(GraphConvNet, self).__init__()
@@ -42,17 +51,18 @@ class GraphConvNet(nn.HybridBlock):
                 use_bias=True,
             )
             self.dropout = nn.Dropout(dropout)
+            self.nconv = NConv()
 
-    def forward(self, x, support: list):
+    def hybrid_forward(self, F, x, support: list):
         out = [x]
         for a in support:
-            x1 = nconv(x, a)
+            x1 = self.nconv(x, a)
             out.append(x1)
             for k in range(2, self.order + 1):
-                x2 = nconv(x1, a)
+                x2 = self.nconv(x1, a)
                 out.append(x2)
                 x1 = x2
-        h = np.concatenate(out, axis=1)
+        h = F.concat(*out, dim=1)
         h = self.final_conv(h)
         h = self.dropout(h)
         return h
@@ -60,8 +70,8 @@ class GraphConvNet(nn.HybridBlock):
 
 def test_gcn():
     (b, c, n, t) = (12, 8, 5, 7)
-    x = np.random.randn(b, c, n, t)
-    A = np.random.randn(n, n)
+    x = nd.random.randn(b, c, n, t)
+    A = nd.random.randn(n, n)
     model = GraphConvNet(3, 0.3, 1)
     print(model)
     print(model.collect_params())
@@ -71,7 +81,6 @@ def test_gcn():
     print(model.summary(x, [A]))
 
 
-@use_np
 class GWNet(nn.HybridBlock):
     def __init__(self,
                  num_nodes,
@@ -91,7 +100,7 @@ class GWNet(nn.HybridBlock):
                  blocks=4,
                  layers=2,
                  apt_size=10,
-                 ctx=npx.cpu()):
+                 ctx=mx.cpu()):
         super(GWNet, self).__init__()
         self.ctx = ctx
         self.dropout = dropout
@@ -122,6 +131,11 @@ class GWNet(nn.HybridBlock):
             self.supports_len = len(self.fixed_supports)
             if do_graph_conv and addaptadj:
                 assert aptinit is None
+                # self.nodevec1 = self.params.get("nodevec1",
+                #                                 shape=(num_nodes, apt_size),allow_deferred_init=True)
+                # self.nodevec2 = self.params.get("nodevec2",
+                #                                 shape=(num_nodes, apt_size),allow_deferred_init=True)
+
                 self.nodevec1 = self.params.get("nodevec1",
                                                 shape=(num_nodes, apt_size))
                 self.nodevec2 = self.params.get("nodevec2",
@@ -219,7 +233,7 @@ class GWNet(nn.HybridBlock):
         parser.add_argument('--in_dim',
                             type=int,
                             default=2,
-                            help='inputs dimension')
+                            help='induts dimension')
         parser.add_argument('--num_nodes',
                             type=int,
                             default=325,
@@ -242,15 +256,16 @@ class GWNet(nn.HybridBlock):
         parser.add_argument('--checkpoint', type=str, help='')
         return parent_parser
 
-    def forward(self, x):
-        # Input shape is (bs, features, n_nodes, n_timesteps)
-        x = x.as_in_ctx(self.ctx)
+
+    def hybrid_forward(self, F, x, nodevec1, nodevec2):
+        # Indut shape is (bs, features, n_nodes, n_timesteps)
+        x = x.as_in_context(self.ctx)
         in_len = x.shape[3]
         if in_len < self.receptive_field:
-            x = np.pad(x,
+            x = F.pad(x,
                        mode="constant",
-                       pad_width=((0, 0), (0, 0), (0, 0),
-                                  (self.receptive_field - in_len, 0)))
+                       pad_width=(0, 0, 0, 0, 0, 0,
+                                  self.receptive_field - in_len, 0))
         if self.cat_feat_gc:
             f1, f2 = x[:, [0]], x[:, 1:]
             x1 = self.start_conv(f1)
@@ -262,9 +277,8 @@ class GWNet(nn.HybridBlock):
         adjacency_matrices = self.fixed_supports
         # calculate the current adaptive adj matrix once per iteration
         if self.addaptadj:
-            adp = npx.softmax(npx.relu(
-                np.dot(self.nodevec1.data(),
-                       self.nodevec2.data().T)),
+            adp = F.softmax(F.relu(
+                F.dot(nodevec1, nodevec2.T)),
                               axis=1)
             adjacency_matrices = self.fixed_supports + [adp]
 
@@ -282,8 +296,8 @@ class GWNet(nn.HybridBlock):
             # ---------------------------------------> + ------------->	*skip*
             residual = x
             # dilated convolution
-            filter = np.tanh(self.filter_convs[i](residual))
-            gate = npx.sigmoid(self.gate_convs[i](residual))
+            filter = F.tanh(self.filter_convs[i](residual))
+            gate = F.sigmoid(self.gate_convs[i](residual))
             x = filter * gate
             # parametrized skip connection
             s = self.skip_convs[i](x)  # what are we skipping??
@@ -305,33 +319,33 @@ class GWNet(nn.HybridBlock):
             x = x + residual[:, :, :, -x.shape[3]:]  # TODO(SS): Mean/Max Pool?
             x = self.bn[i](x)
 
-        x = npx.relu(skip)  # ignore last X?
-        x = npx.relu(self.end_conv_1(x))
+        x = F.relu(skip)  # ignore last X?
+        x = F.relu(self.end_conv_1(x))
         x = self.end_conv_2(
             x)  # downsample to (bs, seq_length, 207, nfeatures)
         return x
 
 
 def test_gwnet():
-    (b, c, n, t) = (64, 8, 5, 12)
-    x = np.random.randn(b, c, n, t)
-    A = np.random.randn(n, n)
-    labels = np.random.randn(b, t, n, 1)
+    (b, c, n, t) = (16, 2, 207, 12)
+    x = nd.random.randn(b, c, n, t)
+    A = nd.random.randn(n, n)
+    labels = nd.random.randn(b, t, n, 1)
 
     model = GWNet(n, supports=[A])
     model.initialize()
     print(model)
     print(model.summary(x))
-    model.hybridize()
+    # model.hybridize()
+
     from loss import MAELoss
     loss_fn = MAELoss()
     with autograd.record():
         output = model(x)  # B, T, N, C
         loss = loss_fn(output, labels)
-        print(loss.asscaler())
-        loss.backward()
+    print(loss.mean().asscalar())
+    loss.backward()
     print(output.shape)
-
 
 if __name__ == '__main__':
     # test_nconv()

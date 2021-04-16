@@ -2,7 +2,9 @@ import os
 from multiprocessing import cpu_count
 
 import numpy as npo
-from mxnet import np, npx, use_np
+
+import mxnet as mx
+from mxnet import nd
 from mxnet.gluon.data import Dataset, DataLoader
 
 from config import Config
@@ -10,7 +12,6 @@ import utils
 from model import GWNet
 
 
-@use_np
 class MyDataset(Dataset):
     def __init__(self, xs, ys, batch_size, pad_with_last_sample=True):
         '''
@@ -24,10 +25,10 @@ class MyDataset(Dataset):
             xs = npo.concatenate([xs, x_padding], axis=0)
             ys = npo.concatenate([ys, y_padding], axis=0)
 
-        self.xs = np.array(xs).transpose(0, 3, 2, 1)
-        self.ys = np.array(ys).transpose(0, 3, 2, 1)[:, 0, :, :]
+        self.xs = nd.transpose(nd.array(xs), axes=(0, 3, 2, 1))
+        self.ys = nd.transpose(nd.array(ys),axes=(0, 3, 2, 1))[:, 0, :, :]
 
-        self.ys = np.expand_dims(self.ys, axis=1)
+        self.ys = nd.expand_dims(self.ys, axis=1)
 
     def __getitem__(self, index):
         return self.xs[index], self.ys[index]
@@ -93,9 +94,9 @@ class DataModule():
 
         # graph data
         if self.config.device == "cpu":
-            self.ctx = npx.cpu()
+            self.ctx = mx.cpu()
         else:
-            self.ctx = npx.gpu()
+            self.ctx = mx.gpu()
 
         self.aptinit, self.supports = utils.make_graph_inputs(
             self.config, self.ctx)

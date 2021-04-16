@@ -1,8 +1,7 @@
-from mxnet import np, use_np
+from mxnet import nd
 from mxnet.gluon.loss import Loss
 
 
-@use_np
 class MAELoss(Loss):
     def __init__(self, weight=None, batch_axis=0, scaler=None, **kwargs):
         super(MAELoss, self).__init__(weight, batch_axis, **kwargs)
@@ -10,17 +9,18 @@ class MAELoss(Loss):
         self._batch_axis = batch_axis
         self.scaler = scaler
 
-    def forward(self, preds, labels):
-        labels = labels.transpose(0, 3, 2, 1)
+    def hybrid_forward(self, F, preds, labels):
+        labels = F.transpose(labels,axes=(0, 3, 2, 1))
         if self.scaler is not None:
             preds = self.scaler.inverse_transform(preds)
         #TODO transform clip norm
 
-        mask = np.not_equal(labels, 0.0)
+        mask = F.not_equal(labels, 0.0)
 
         mask = mask.astype("float32")
-        mask /= np.mean(mask)
+        mask /= F.mean(mask)
 
-        mae = np.abs(preds - labels)
+        mae = F.abs(preds - labels)
         mae = mae * mask
-        return np.mean(np.nan_to_num(mae), axis=(1,2,3))
+        # TODO nan_to_num
+        return F.mean(mae, axis=(1,2,3))
