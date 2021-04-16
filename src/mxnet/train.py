@@ -2,6 +2,7 @@
 # import pandas as pd
 import time
 
+import mxnet as mx
 from mxnet import np, npx, init, gluon, autograd
 from mxnet.gluon.contrib.estimator import estimator
 from mxnet.gluon.contrib.estimator.event_handler import CheckpointHandler
@@ -11,7 +12,7 @@ from model import GWNet
 from config import Config
 from data import DataModule
 from loss import MAELoss
-from metric import get_mae_metric, get_mape_metric, get_rmse_metric
+from metric import get_val_metrics
 from callback import MyGradientUpdateHandler, MyMetricHandler
 
 npx.set_np()
@@ -23,6 +24,11 @@ def main():
     parser = GWNet.add_model_specific_args(parser)
     conf = config.get_config(parser)
     print(conf)
+
+    ctx = npx.cpu() if conf.device == "cpu" else npx.gpu()
+    # gpu_count = mx.context.num_gpus()
+    # ctx = [npx.gpu(i)
+    #        for i in range(gpu_count)] if gpu_count > 0 else npx.cpu()
 
     # data
     dm = DataModule(conf)
@@ -36,8 +42,8 @@ def main():
     model = GWNet(
         num_nodes=conf.num_nodes,
         dropout=0.3,
-        # supports=dm.supports,
-        supports=None,
+        supports=dm.supports,
+        # supports=None,
         do_graph_conv=True,
         addaptadj=True,
         aptinit=None,
@@ -50,9 +56,10 @@ def main():
         kernel_size=2,
         blocks=4,
         layers=2,
-        apt_size=10)
+        apt_size=10,
+        ctx=ctx)
 
-    model.initialize(init=init.Xavier(), ctx=npx.cpu())
+    model.initialize(init=init.Xavier(), ctx=ctx)
     print(model)
 
     # for x, y in dl_trn:
@@ -69,33 +76,31 @@ def main():
     loss_fn = MAELoss(scaler=dm.scaler)
     # loss_fn = MAELoss()
 
-    trainer = gluon.Trainer(model.collect_params(), 'adamw',
+    trainer = gluon.Trainer(model.collect_params(), 'adam',
                             {'learning_rate': conf.lr})  # Trainer
 
+    val_metrics = get_val_metrics(dm.scaler)
     est = estimator.Estimator(net=model,
                               loss=loss_fn,
-                              val_metrics=[
-                                  get_mae_metric(dm.scaler),
-                                  get_mape_metric(dm.scaler),
-                                  get_rmse_metric(dm.scaler)
-                              ],
+                              val_metrics=val_metrics,
                               trainer=trainer,
-                              context=npx.cpu())
+                              context=ctx)
 
     # ignore warnings for nightly test on CI only
     # import warnings
     # with warnings.catch_warnings():
     #     warnings.simplefilter("ignore")
     # Magic line
-    est.fit(train_data=dl_trn,
-            val_data=dl_val,
-            epochs=1,
-            event_handler=[
-                MyGradientUpdateHandler(),
-                MyMetricHandler(get_mae_metric(dm.scaler, -1000)),
-                MyMetricHandler(get_mape_metric(dm.scaler, -1001)),
-                MyMetricHandler(get_rmse_metric(dm.scaler, -1002)),
-            ])
+    est.fit(
+        train_data=dl_trn,
+        val_data=dl_val,
+        epochs=1,
+        event_handlers=[
+            MyGradientUpdateHandler(),
+            MyMetricHandler(val_metrics, -1000),
+            # MyMetricHandler([get_mape_metric(dm.scaler)], -1001),
+            # MyMetricHandler([get_rmse_metric(dm.scaler)], -1002),
+        ])
 
 
 if __name__ == "__main__":

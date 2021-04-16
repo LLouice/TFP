@@ -12,7 +12,7 @@ class MyGradientUpdateHandler(GradientUpdateHandler):
         super(MyGradientUpdateHandler, self).__init__(priority)
 
     def batch_end(self, estimator, *args, **kwargs):
-        print(f"call MyGradientUpdateHandler {self.priority}")
+        # print(f"call MyGradientUpdateHandler {self.priority}")
         loss = kwargs['loss']
         batch_size = 0
         if not isinstance(loss, list):
@@ -30,7 +30,7 @@ class MyMetricHandler(MetricHandler):
 
     # override
     def batch_end(self, estimator, *args, **kwargs):
-        print(f"call MyMetricHandler {self.priority}")
+        # print(f"call MyMetricHandler {self.priority}")
         pred = kwargs['pred']
         label = kwargs['label']
         loss = kwargs['loss']

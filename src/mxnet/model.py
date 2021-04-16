@@ -90,8 +90,10 @@ class GWNet(nn.HybridBlock):
                  kernel_size=2,
                  blocks=4,
                  layers=2,
-                 apt_size=10):
+                 apt_size=10,
+                 ctx=npx.cpu()):
         super(GWNet, self).__init__()
+        self.ctx = ctx
         self.dropout = dropout
         self.blocks = blocks
         self.layers = layers
@@ -176,6 +178,7 @@ class GWNet(nn.HybridBlock):
                                         in_channels=skip_channels)
             self.end_conv_2 = nn.Conv2D(out_dim, (1, 1),
                                         in_channels=end_channels)
+            self.leaky_relu = nn.LeakyReLU(0.01)
 
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -185,11 +188,11 @@ class GWNet(nn.HybridBlock):
         parser = parent_parser.add_argument_group("GWNet")
         parser.add_argument('--data',
                             type=str,
-                            default='data/METR-LA',
+                            default='data/PEMA-BAY',
                             help='data path')
         parser.add_argument('--adjdata',
                             type=str,
-                            default='data/sensor_graph/adj_mx.pkl',
+                            default='data/sensor_graph/adj_mx_bay.pkl',
                             help='adj data path')
         parser.add_argument('--adjtype',
                             type=str,
@@ -219,7 +222,7 @@ class GWNet(nn.HybridBlock):
                             help='inputs dimension')
         parser.add_argument('--num_nodes',
                             type=int,
-                            default=207,
+                            default=325,
                             help='number of nodes')
         parser.add_argument('--batch_size',
                             type=int,
@@ -241,6 +244,7 @@ class GWNet(nn.HybridBlock):
 
     def forward(self, x):
         # Input shape is (bs, features, n_nodes, n_timesteps)
+        x = x.as_in_ctx(self.ctx)
         in_len = x.shape[3]
         if in_len < self.receptive_field:
             x = np.pad(x,
@@ -282,7 +286,6 @@ class GWNet(nn.HybridBlock):
             gate = npx.sigmoid(self.gate_convs[i](residual))
             x = filter * gate
             # parametrized skip connection
-            print(i)
             s = self.skip_convs[i](x)  # what are we skipping??
             try:  # if i > 0 this works
                 skip = skip[:, :, :, -s.size(3):]  # TODO(SS): Mean/Max Pool?
