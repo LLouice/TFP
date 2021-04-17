@@ -1,8 +1,8 @@
 import mxnet as mx
 from mxnet import nd, autograd, gluon
+from mxnet import nd as F
 from mxnet.gluon import nn, Trainer
 from mxnet.gluon.data import Dataset, DataLoader
-
 
 
 class NConv(nn.HybridBlock):
@@ -15,8 +15,8 @@ class NConv(nn.HybridBlock):
         super(NConv, self).__init__()
 
     def hybrid_forward(self, F, x, A):
-        return F.transpose(F.dot(F.transpose(x, axes=(0,1,3,2)), A), axes=(0,1,3,2))
-
+        return F.transpose(F.dot(F.transpose(x, axes=(0, 1, 3, 2)), A),
+                           axes=(0, 1, 3, 2))
 
 
 def test_nconv():
@@ -81,7 +81,7 @@ def test_gcn():
     print(model.summary(x, [A]))
 
 
-class GWNet(nn.HybridBlock):
+class GWNet(nn.Block):
     def __init__(self,
                  num_nodes,
                  dropout=0.3,
@@ -158,8 +158,8 @@ class GWNet(nn.HybridBlock):
                     if not self.do_graph_conv:
                         self.residual_convs.add(
                             nn.Conv2D(residual_channels, (1, 1),
-                                    in_channels=dilation_channels,
-                                    prefix="residual_{}_".format(i)))
+                                      in_channels=dilation_channels,
+                                      prefix="residual_{}_".format(i)))
                     self.bn.add(nn.BatchNorm(in_channels=residual_channels))
                     self.graph_convs.add(
                         GraphConvNet(residual_channels,
@@ -256,16 +256,15 @@ class GWNet(nn.HybridBlock):
         parser.add_argument('--checkpoint', type=str, help='')
         return parent_parser
 
-
-    def hybrid_forward(self, F, x, nodevec1, nodevec2):
+    def forward(self):
         # Indut shape is (bs, features, n_nodes, n_timesteps)
-        x = x.as_in_context(self.ctx)
+        # x = x.as_in_context(self.ctx)
         in_len = x.shape[3]
         if in_len < self.receptive_field:
             x = F.pad(x,
-                       mode="constant",
-                       pad_width=(0, 0, 0, 0, 0, 0,
-                                  self.receptive_field - in_len, 0))
+                      mode="constant",
+                      pad_width=(0, 0, 0, 0, 0, 0,
+                                 self.receptive_field - in_len, 0))
         if self.cat_feat_gc:
             f1, f2 = x[:, [0]], x[:, 1:]
             x1 = self.start_conv(f1)
@@ -278,8 +277,9 @@ class GWNet(nn.HybridBlock):
         # calculate the current adaptive adj matrix once per iteration
         if self.addaptadj:
             adp = F.softmax(F.relu(
-                F.dot(nodevec1, nodevec2.T)),
-                              axis=1)
+                F.dot(self.nodevec1.data(),
+                      self.nodevec2.data().T)),
+                            axis=1)
             adjacency_matrices = self.fixed_supports + [adp]
 
         # WaveNet layers
@@ -301,8 +301,10 @@ class GWNet(nn.HybridBlock):
             x = filter * gate
             # parametrized skip connection
             s = self.skip_convs[i](x)  # what are we skipping??
+
+            print(i, s.shape[3])
             try:  # if i > 0 this works
-                skip = skip[:, :, :, -s.size(3):]  # TODO(SS): Mean/Max Pool?
+                skip = skip[:, :, :, -s.shape[3]:]  # TODO(SS): Mean/Max Pool?
             except:
                 skip = 0
             skip = s + skip
@@ -321,8 +323,8 @@ class GWNet(nn.HybridBlock):
 
         x = F.relu(skip)  # ignore last X?
         x = F.relu(self.end_conv_1(x))
-        x = self.end_conv_2(
-            x)  # downsample to (bs, seq_length, 207, nfeatures)
+        # downsample to (B, T, N, C)
+        x = self.end_conv_2(x)
         return x
 
 
@@ -346,6 +348,7 @@ def test_gwnet():
     print(loss.mean().asscalar())
     loss.backward()
     print(output.shape)
+
 
 if __name__ == '__main__':
     # test_nconv()
