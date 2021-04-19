@@ -1,3 +1,4 @@
+import math
 import os
 import time
 
@@ -5,15 +6,14 @@ import torch
 import torch.nn.functional as F
 
 import pytorch_lightning as pl
-from pytorch_lightning import Trainer, seed_everything
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping  # , LearningRateLogger
-from pytorch_lightning.loggers import TensorBoardLogger
-from pytorch_lightning.callbacks import Callback
-
 from config import Config
 from data import DataModule
-from utils import get_logger, calc_metrics
 from model import GWNet
+from pytorch_lightning import Trainer, seed_everything
+from pytorch_lightning.callbacks import Callback  # , LearningRateLogger
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
+from pytorch_lightning.loggers import TensorBoardLogger
+from utils import calc_metrics, get_logger
 
 
 class TimeCallback(Callback):
@@ -144,7 +144,7 @@ class Net(pl.LightningModule):
 
         return mae
 
-    def _dev_setp(self, batch, batch_idx, stage=None):
+    def _dev_setp(self, batch, batch_idx):
         x, y = batch
         inp = F.pad(x, (1, 0, 0, 0))
         output = self(inp).transpose(1, 3)  #[B, C, N, T] ?
@@ -153,66 +153,72 @@ class Net(pl.LightningModule):
 
         real = torch.unsqueeze(y, dim=1)
         mae, mape, rmse = calc_metrics(predict, real, null_val=0.0)
-        if stage:
-            self.log(f"{stage}/mae", mae)
-            self.log(f"{stage}/mape", mape)
-            self.log(f"{stage}/rmse", rmse)
         return mae, mape, rmse
 
-    def _dev_epoch_end(self, outputs):
-        log = dict()
-        return log
+    def _dev_epoch_end(self, outputs, stage=None):
+        if stage:
+            maes = []
+            mapes = []
+            rmses= []
+            for (mae, mape, rmse) in outputs:
+                maes.append(mae)
+                mapes.append(mape)
+                rmses.append(rmse)
 
-        res = self._dev_epoch_end(outputs)
-        tb_log = {}
-        for k, v in res.items():
-            tb_log["val/" + k] = v
-        if self._logger:
-            self._logger.info(tb_log)
-        return dict(log=tb_log)
+            self.log(f"{stage}/mae", np.mean(maes))
+            self.log(f"{stage}/mape", np.mean(mapes))
+            self.log(f"{stage}/rmse", np.mean(rmses))
 
     def validation_step(self, batch, batch_idx):
         return self._dev_setp(batch, batch_idx, "val")
 
     def validation_epoch_end(self, outputs):
-        res = self._dev_epoch_end(outputs)
-        tb_log = {}
-        for k, v in res.items():
-            tb_log["val/" + k] = v
-        if self._logger:
-            self._logger.info(tb_log)
-        return dict(log=tb_log)
+        self._dev_epoch_end(outputs, "val")
 
     def test_step(self, batch, batch_idx):
         self._dev_setp(batch, batch_idx, "test")
 
     def test_epoch_end(self, outputs):
-        res = self._dev_epoch_end(outputs)
-        tb_log = {}
-        for k, v in res.items():
-            tb_log["test/" + k] = v
-        return dict(log=tb_log)
+        self._dev_epoch_end(outputs, "val")
 
     def configure_optimizers(self):
+        lr = self.hparams.lr
+        weight_decay = self.hparams.wd
+
         optimizer = torch.optim.Adam(self.parameters(),
-                                     lr=self.hparams.lr,
+                                     lr=lr,
                                      weight_decay=self.hparams.wd)
 
         if self.hparams.opt == "adamw":
             optimizer = torch.optim.AdamW(self.parameters(),
-                                          lr=self.hparams.lr,
-                                          weight_decay=self.hparams.wd)
+                                          lr=lr,
+                                          weight_decay=weight_decay)
         elif self.hparams.opt == "adam":
             optimizer = torch.optim.Adam(self.parameters(),
-                                         lr=self.hparams.lr,
-                                         weight_decay=self.hparams.wd)
+                                         lr=lr,
+                                         weight_decay=weight_decay)
         elif self.hparams.opt == "sgd":
             optimizer = torch.optim.SGD(self.parameters(),
-                                        lr=self.hparams.lr,
-                                        weight_decay=self.hparams.wd,
+                                        lr=lr,
+                                        weight_decay=weight_decay,
                                         momentum=0.9)
-        scheduler = torch.optim.lr_scheduler.LambdaLR(
-            optimizer, lr_lambda=lambda epoch: self.hparams.lr_decay**epoch)
+        scheduler = None
+        if self.hparams.sched == "exp":
+            scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda epoch: self.hparams.lr_decay**epoch)
+        elif self.hparams.sched ==  "onecycle":
+            scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer,
+                                                         max_lr=lr,
+                                                         epochs=self.hparams.epos,
+                                                         steps_per_epoch=self.hparams.step_per_epoch,
+                                                         pct_start=0.25,
+                                                         anneal_strategy='cos',
+                                                         cycle_momentum=True,
+                                                         base_momentum=0.85,
+                                                         max_momentum=0.95,
+                                                         div_factor=25.0,
+                                                         final_div_factor=1e5,
+                                                         last_epoch=-1,
+                                                         )
         return dict(optimizer=optimizer, lr_scheduler=scheduler)
 
 
@@ -241,6 +247,10 @@ def main():
     dm = DataModule(conf, logger)
     dm.prepare_data()
 
+    # calc step_per_epoch
+    step_per_epoch = math.ceil(len(dm.train_dataloader()) / conf.bs)
+    conf.step_per_epoch = step_per_epoch
+
     # ------------
     # model
     # ------------
@@ -249,7 +259,7 @@ def main():
     # "checkpoint"
     checkpoint_callback = ModelCheckpoint(
         dirpath=os.path.join(os.getcwd(), "runs/ckpts"),
-        filename=conf.exp + "/{epoch}-{val_mae:.4f}",
+        filename=conf.exp + "/{epoch}-{val/mae:.4f}",
         save_top_k=1,
         verbose=True,
         monitor='val/mae',  # TODO: the name ?
@@ -283,7 +293,6 @@ def main():
         max_epochs=conf.epos,
         check_val_every_n_epoch=conf.check_val,
         checkpoint_callback=checkpoint_callback,
-        # early_stop_callback=early_stopping,
         num_sanity_val_steps=0,
         progress_bar_refresh_rate=conf.pb_rate,
         distributed_backend=distributed_backend,

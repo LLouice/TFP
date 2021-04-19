@@ -1,5 +1,5 @@
-import sys
 import argparse
+import sys
 
 
 class Config():
@@ -16,6 +16,12 @@ class Config():
                                 type=str,
                                 choices=["adam", "adamw", "sgd"],
                                 default="adamw")
+
+        sub_parser.add_argument('--sched',
+                                type=str,
+                                choices=["exp", "onecycle"],
+                                default="exp")
+
         # 'dataloader
         sub_parser = parser.add_argument_group("dataloader")
         sub_parser.add_argument("--bs", type=int, default=64)
