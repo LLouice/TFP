@@ -10,8 +10,8 @@ from config import Config
 from data import DataModule
 from model import GWNet
 from pytorch_lightning import Trainer, seed_everything
-from pytorch_lightning.callbacks import Callback  # , LearningRateLogger
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
+from pytorch_lightning.callbacks import (Callback, EarlyStopping,
+                                         LearningRateMonitor, ModelCheckpoint)
 from pytorch_lightning.loggers import TensorBoardLogger
 from utils import calc_metrics, get_logger
 
@@ -137,11 +137,7 @@ class Net(pl.LightningModule):
         self.log("train/mae", mae)
         self.log("train/mape", mape)
         self.log("train/rmse", rmse)
-
-        # TODO: Add clip
-        # if self.clip is not None:
-        #     torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.clip)
-
+        self.log("lr", self.trainer.learing_rate)
         return mae
 
     def _dev_setp(self, batch, batch_idx):
@@ -286,6 +282,10 @@ def main():
                                    strict=False,
                                    verbose=False,
                                    mode='min')
+
+    lr_monitor = LearningRateMonitor(logging_interval='step', logging_momentum=True)
+
+
     if conf.tpu:
         gpus = None
     else:
@@ -307,7 +307,7 @@ def main():
         distributed_backend=distributed_backend,
         logger=tb_logger,
         gradient_clip_val=3.0,
-        callbacks=[early_stopping],
+        callbacks=[early_stopping, lr_monitor],
         # resume_from_checkpoint="ckpts/foo.ckpt"
     )
 
