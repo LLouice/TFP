@@ -1,9 +1,9 @@
-import math
 import os
 import time
 
 import torch
 import torch.nn.functional as F
+from torch.optim.lr_scheduler import ExponentialLR
 
 import pytorch_lightning as pl
 from config import Config
@@ -193,18 +193,23 @@ class Net(pl.LightningModule):
             optimizer = torch.optim.AdamW(self.parameters(),
                                           lr=lr,
                                           weight_decay=weight_decay)
+            self._logger.info(f"use adamw optimizer, lr: {lr}, weight_decay: {weight_decay}")
         elif self.hparams.opt == "adam":
             optimizer = torch.optim.Adam(self.parameters(),
                                          lr=lr,
                                          weight_decay=weight_decay)
+            self._logger.info(f"use adami optimizer, lr: {lr}, weight_decay: {weight_decay}")
         elif self.hparams.opt == "sgd":
             optimizer = torch.optim.SGD(self.parameters(),
                                         lr=lr,
                                         weight_decay=weight_decay,
                                         momentum=0.9)
+            self._logger.info(f"use sgd optimizer, lr: {lr}, momentum: 0.9 weight_decay: {weight_decay}")
         scheduler = None
         if self.hparams.sched == "exp":
             scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda epoch: self.hparams.lr_decay**epoch)
+
+            self._logger.info(f"use ExponentialLR, lr: {lr}, gamma: {self.hparams.lr_decay}")
         elif self.hparams.sched ==  "onecycle":
             scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer,
                                                          max_lr=lr,
@@ -219,6 +224,7 @@ class Net(pl.LightningModule):
                                                          final_div_factor=1e5,
                                                          last_epoch=-1,
                                                          )
+            self._logger.info(f"use OneCycleLR, max_lr: {lr}")
         return dict(optimizer=optimizer, lr_scheduler=scheduler)
 
 
@@ -246,9 +252,12 @@ def main():
     # ------------
     dm = DataModule(conf, logger)
     dm.prepare_data()
+    dm.setup()
+    dl_trn = dm.train_dataloader()
+    dl_val = dm.val_dataloader()
 
     # calc step_per_epoch
-    step_per_epoch = math.ceil(len(dm.train_dataloader()) / conf.bs)
+    step_per_epoch = len(dl_trn)
     conf.step_per_epoch = step_per_epoch
 
     # ------------
@@ -258,8 +267,8 @@ def main():
 
     # "checkpoint"
     checkpoint_callback = ModelCheckpoint(
-        dirpath=os.path.join(os.getcwd(), "runs/ckpts"),
-        filename=conf.exp + "/{epoch}-{val/mae:.4f}",
+        dirpath=os.path.join(os.getcwd(), f"runs/ckpts/{conf.exp}"),
+        filename="/{epoch}-{val/mae:.4f}",
         save_top_k=1,
         verbose=True,
         monitor='val/mae',  # TODO: the name ?
@@ -309,7 +318,7 @@ def main():
         suggested_lr = lr_finder.suggestion()
         logger.info("suggested_lr: ", suggested_lr)
     else:
-        trainer.fit(model, dm)
+        trainer.fit(model, dl_trn, dl_val)
         logger.success("training finish!")
         trainer.test(datamodule=dm)
 
