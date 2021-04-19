@@ -19,9 +19,8 @@ class MyDataset(Dataset):
             y_padding = np.repeat(ys[-1:], num_padding, axis=0)
             xs = np.concatenate([xs, x_padding], axis=0)
             ys = np.concatenate([ys, y_padding], axis=0)
-        self.xs = torch.from_numpy(xs).transpose(1,3).float()
-        self.ys = torch.from_numpy(ys).transpose(1,3)[:, 0, :, :].float()
-        self.ys = self.ys.unsqueeze(1)
+        self.xs = torch.from_numpy(xs).transpose(1, 3).float()
+        self.ys = torch.from_numpy(ys).transpose(1, 3)[:, 0, :, :].float()
 
     def __getitem__(self, index):
         return self.xs[index], self.ys[index]

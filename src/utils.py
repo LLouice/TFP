@@ -62,7 +62,7 @@ def make_graph_inputs(args):
         if not args.addaptadj and args.do_graph_conv:
             raise ValueError('WARNING: not using adjacency matrix')
         supports = None
-    return aptinit.to(args.device), supports
+    return aptinit, supports
 
 
 def load_adj(pkl_filename, adjtype):
