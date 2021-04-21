@@ -84,7 +84,7 @@ class Config():
         sub_parser.add_argument("--data_pt", type=str, default="data/data.h5")
         sub_parser.add_argument("--log_file",
                                 type=str,
-                                default="runs/logs/train")
+                                default="runs/logs/")
         sub_parser.add_argument("--log_level",
                                 type=str,
                                 choices=["info", "debug", "warning"],
@@ -126,8 +126,7 @@ def _convert(config):
 
 
 def _add_log_prefix(config):
-    prefix = "_".join([arg[2:] for arg in sys.argv[1:]])
-    config.log_file += "_{}".format(prefix)
+    config.log_file += f"{config.exp}"
 
 
 if __name__ == "__main__":

@@ -134,10 +134,9 @@ class Net(pl.LightningModule):
         predict = self.scaler.inverse_transform(output)
         assert predict.shape[1] == 1
         mae, mape, rmse = calc_metrics(predict.squeeze(1), y, null_val=0.0)
-        self.log("train/mae", mae)
-        self.log("train/mape", mape)
-        self.log("train/rmse", rmse)
-        self.log("lr", self.trainer.learing_rate)
+        self.log("train_mae", mae)
+        self.log("train_mape", mape)
+        self.log("train_rmse", rmse)
         return mae
 
     def _dev_setp(self, batch, batch_idx):
@@ -160,22 +159,22 @@ class Net(pl.LightningModule):
                 maes.append(mae)
                 mapes.append(mape)
                 rmses.append(rmse)
-
-            self.log(f"{stage}/mae", np.mean(maes))
-            self.log(f"{stage}/mape", np.mean(mapes))
-            self.log(f"{stage}/rmse", np.mean(rmses))
+            if len(maes) > 0:
+                self.log(f"{stage}_mae", torch.stack(maes).mean())
+                self.log(f"{stage}_mape", torch.stack(mapes).mean())
+                self.log(f"{stage}_rmse", torch.stack(rmses).mean())
 
     def validation_step(self, batch, batch_idx):
-        return self._dev_setp(batch, batch_idx, "val")
+        return self._dev_setp(batch, batch_idx)
 
     def validation_epoch_end(self, outputs):
         self._dev_epoch_end(outputs, "val")
 
     def test_step(self, batch, batch_idx):
-        self._dev_setp(batch, batch_idx, "test")
+        return self._dev_setp(batch, batch_idx)
 
     def test_epoch_end(self, outputs):
-        self._dev_epoch_end(outputs, "val")
+        self._dev_epoch_end(outputs, "test")
 
     def configure_optimizers(self):
         lr = self.hparams.lr
@@ -203,11 +202,11 @@ class Net(pl.LightningModule):
             self._logger.info(f"use sgd optimizer, lr: {lr}, momentum: 0.9 weight_decay: {weight_decay}")
         scheduler = None
         if self.hparams.sched == "exp":
-            scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda epoch: self.hparams.lr_decay**epoch)
+            scheduler = dict(lr_scheduler=torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda epoch: self.hparams.lr_decay**epoch))
 
             self._logger.info(f"use ExponentialLR, lr: {lr}, gamma: {self.hparams.lr_decay}")
         elif self.hparams.sched ==  "onecycle":
-            scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer,
+            scheduler = dict(lr_scheduler=torch.optim.lr_scheduler.OneCycleLR(optimizer,
                                                          max_lr=lr,
                                                          epochs=self.hparams.epos,
                                                          steps_per_epoch=self.hparams.step_per_epoch,
@@ -219,9 +218,11 @@ class Net(pl.LightningModule):
                                                          div_factor=25.0,
                                                          final_div_factor=1e5,
                                                          last_epoch=-1,
-                                                         )
+                                                         ), interval="step")
             self._logger.info(f"use OneCycleLR, max_lr: {lr}")
-        return dict(optimizer=optimizer, lr_scheduler=scheduler)
+        ret = dict(optimizer=optimizer)
+        ret.update(scheduler)
+        return ret
 
 
 def main():
@@ -229,7 +230,7 @@ def main():
     # seed
     # ------------
     torch.set_printoptions(precision=5)
-    seed_everything(42)
+    #seed_everythin(42)
 
     # ------------
     # args
@@ -264,10 +265,10 @@ def main():
     # "checkpoint"
     checkpoint_callback = ModelCheckpoint(
         dirpath=os.path.join(os.getcwd(), f"runs/ckpts/{conf.exp}"),
-        filename="/{epoch}-{val/mae:.4f}",
+        filename="{epoch}-{val_mae:.4f}",
         save_top_k=1,
         verbose=True,
-        monitor='val/mae',  # TODO: the name ?
+        monitor='val_mae', 
         mode='min',
     )
 
@@ -277,13 +278,13 @@ def main():
         name=conf.exp,
     )
 
-    early_stopping = EarlyStopping(monitor='val/mae',
+    early_stopping = EarlyStopping(monitor='val_mae',
                                    patience=5,
                                    strict=False,
                                    verbose=False,
                                    mode='min')
 
-    lr_monitor = LearningRateMonitor(logging_interval='step', logging_momentum=True)
+    lr_monitor = LearningRateMonitor(logging_interval='step', log_momentum=True)
 
 
     if conf.tpu:
@@ -307,7 +308,7 @@ def main():
         distributed_backend=distributed_backend,
         logger=tb_logger,
         gradient_clip_val=3.0,
-        callbacks=[early_stopping, lr_monitor],
+        callbacks=[early_stopping],
         # resume_from_checkpoint="ckpts/foo.ckpt"
     )
 
