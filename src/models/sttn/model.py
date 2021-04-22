@@ -4,8 +4,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from gcn import GraphConvNet
-from embed import SpatialEmbedding, TemporalEmbedding
+from .gcn import GraphConvNet
+from .embed import SpatialEmbedding, TemporalEmbedding
 
 
 class ScaledDotProductAttention(nn.Module):
@@ -158,7 +158,7 @@ class STransformer(nn.Module):
         # TODO tune ~order~ hyper parameter
         self.gcn = GraphConvNet(embed_size, embed_size * 2, embed_size,
                                 dropout)
-        self.norm_adj = nn.InstanceNorm2d(1)  # 对邻接矩阵归一化
+        # self.norm_adj = nn.InstanceNorm2d(1)  # 对邻接矩阵归一化
 
         self.dropout = nn.Dropout(dropout)
         self.fs = nn.Linear(embed_size, embed_size)
@@ -181,10 +181,10 @@ class STransformer(nn.Module):
 
         # two branch
         # GCN 部分
-        X_G = torch.Tensor(B, N, 0, C).to(self.device)  # empty tensor
-        self.adj = self.adj.unsqueeze(0).unsqueeze(0)  #[1, 1, N, N]
-        self.adj = self.norm_adj(self.adj.float())
-        self.adj = self.adj.squeeze(0).squeeze(0)
+        # X_G = torch.Tensor(B, N, 0, C).to(self.device)  # empty tensor
+        # self.adj = self.adj.unsqueeze(0).unsqueeze(0)  #[1, 1, N, N]
+        # self.adj = self.norm_adj(self.adj.float())
+        # self.adj = self.adj.squeeze(0).squeeze(0)
 
         # TODO: parallel
         # for t in range(query.shape[2]):
@@ -218,7 +218,6 @@ class TTransformer(nn.Module):
         super(TTransformer, self).__init__()
 
         # Temporal embedding One hot
-        self.time_num = time_num
         #         self.one_hot = One_hot_encoder(embed_size, time_num)          # temporal embedding选用one-hot方式 或者
         self.shared_temporal_embedding = shared_temporal_embedding
 
@@ -396,9 +395,8 @@ class STTransformer(nn.Module):
         out = out.permute(0, 3, 2,
                           1)  # 等号左边 out shape: [B, C, N, output_T_dim]
         out = self.conv3(out)  # 等号左边 out shape: [B, 1, N, output_T_dim]
-        out = out.squeeze(1)
 
-        return out  #[B, N, output_dim]
+        return out  #[B, 1, N, output_T_dim]
 
 
 if __name__ == '__main__':

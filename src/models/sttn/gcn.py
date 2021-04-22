@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from utils import scaled_Laplacian, cheb_polynomial
+# from utils import scaled_Laplacian, cheb_polynomial
 
 
 class GraphConvolution(nn.Module):
