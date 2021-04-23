@@ -428,7 +428,7 @@ class STTransformer(nn.Module):
                  heads,
                  cheb_K,
                  forward_expansion,
-                 dropout=dropout,
+                 dropout=0.1,
                  device="cpu"):
         super(STTransformer, self).__init__()
 
