@@ -32,6 +32,7 @@ class ScaledDotProductAttention(nn.Module):
         context = torch.matmul(attn, V)
         return context
 
+
 class SMultiHeadAttention(nn.Module):
     def __init__(self, embed_size, heads):
         super(SMultiHeadAttention, self).__init__()
@@ -78,6 +79,7 @@ class SMultiHeadAttention(nn.Module):
                                   self.heads * self.head_dim)  # [B, N, T, C]
         output = self.fc_out(context)
         return output
+
 
 class TMultiHeadAttention(nn.Module):
     def __init__(self, embed_size, heads):
@@ -126,21 +128,13 @@ class TMultiHeadAttention(nn.Module):
         output = self.fc_out(context)
         return output
 
+
 class STransformer(nn.Module):
     def __init__(self, embed_size, heads, adj, cheb_K, dropout,
-                 forward_expansion, device, shared_temporal_embedding):
+                 forward_expansion):
         super(STransformer, self).__init__()
-        self.device = device
-        # Spatial Embedding
-        self.adj = adj.to(device)
 
-        # positional embedding (Add)
-        self.spatial_embedding = SpatialEmbedding(self.adj.shape[0],
-                                                  embed_size)
-
-        # temporal embedding (Add)
-        self.shared_temporal_embedding = shared_temporal_embedding
-
+        self.adj = adj
         self.attention = SMultiHeadAttention(embed_size, heads)
         self.norm1 = nn.LayerNorm(embed_size)
         self.norm2 = nn.LayerNorm(embed_size)
@@ -161,19 +155,9 @@ class STransformer(nn.Module):
         self.fs = nn.Linear(embed_size, embed_size)
         self.fg = nn.Linear(embed_size, embed_size)
 
-    def forward(self, x):
+    def forward(self, x, D_S, D_T):
         query = x
         B, N, T, C = query.shape
-
-        # [N, N] -> [N, C] -> [B, T, N, C]
-        D_S = self.spatial_embedding(self.adj)  # [N, C]
-        D_S = D_S.expand(B, T, N, C)  #[B, T, N, C]相当于在第2维复制了T份, 第一维复制B份
-        D_S = D_S.permute(0, 2, 1, 3)  #[B, N, T, C]
-
-        # D_T
-        D_T = self.shared_temporal_embedding(
-            torch.arange(0, T).to(query.device))
-
         query = query + D_S + D_T
 
         # two branch
@@ -189,7 +173,8 @@ class STransformer(nn.Module):
         #     o = o.unsqueeze(2)  # shape [N, 1, C] [B, N, 1, C]
         #     #             print(o.shape)
         #     X_G = torch.cat((X_G, o), dim=2)  # cat on T dim
-        X_G = self.gcn(query, [self.adj]) #[B C N T]
+        # why not norm adj? it has norm?
+        X_G = self.gcn(query, [self.adj])  #[B C N T]
         X_G = X_G.permute(0, 2, 3, 1)
 
         # 最后X_G [B, N, T, C]
@@ -208,14 +193,10 @@ class STransformer(nn.Module):
 
         return out  #(B, N, T, C)
 
-class TTransformer(nn.Module):
-    def __init__(self, embed_size, heads, dropout, forward_expansion,
-                 shared_temporal_embedding):
-        super(TTransformer, self).__init__()
 
-        # Temporal embedding One hot
-        #         self.one_hot = One_hot_encoder(embed_size, time_num)          # temporal embedding选用one-hot方式 或者
-        self.shared_temporal_embedding = shared_temporal_embedding
+class TTransformer(nn.Module):
+    def __init__(self, embed_size, heads, dropout, forward_expansion):
+        super(TTransformer, self).__init__()
 
         self.attention = TMultiHeadAttention(embed_size, heads)
         self.norm1 = nn.LayerNorm(embed_size)
@@ -228,12 +209,9 @@ class TTransformer(nn.Module):
         )
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, inp):
+    def forward(self, inp, D_T):
         query = inp
         B, N, T, C = query.shape
-
-        D_T = self.shared_temporal_embedding(torch.arange(0, T).to(inp.device))
-        D_T = D_T.expand(B, N, T, C)
 
         # temporal embedding加到query。 原论文采用concatenated
         # query is the sum of (X_S + Y_S), spatial skip connection
@@ -247,30 +225,133 @@ class TTransformer(nn.Module):
         out = self.dropout(self.norm2(forward + x))
         return out
 
+
+class Crosstransformer(nn.Module):
+    def __init__(self, embed_size, heads, dropout, forward_expansion):
+        super(Crosstransformer, self).__init__()
+
+        # left attention
+        self.attention_left = SMultiHeadAttention(embed_size, heads)
+        self.norm1_left = nn.LayerNorm(embed_size)
+        self.norm2_left = nn.LayerNorm(embed_size)
+
+        self.feed_forward_left = nn.Sequential(
+            nn.Linear(embed_size, forward_expansion * embed_size),
+            nn.ReLU(),
+            nn.Linear(forward_expansion * embed_size, embed_size),
+        )
+        self.dropout_left = nn.Dropout(dropout)
+
+        # right attention
+        self.attention_right = SMultiHeadAttention(embed_size, heads)
+        self.norm1_right = nn.LayerNorm(embed_size)
+        self.norm2_right = nn.LayerNorm(embed_size)
+
+        self.feed_forward_right = nn.Sequential(
+            nn.Linear(embed_size, forward_expansion * embed_size),
+            nn.ReLU(),
+            nn.Linear(forward_expansion * embed_size, embed_size),
+        )
+        self.dropout_right = nn.Dropout(dropout)
+
+    def forward(self, inp, D_S, D_T):
+        query = inp
+        B, N, T, C = query.shape
+
+        # temporal embedding加到query。 原论文采用concatenated
+        # query is the sum of (X_S + Y_S), spatial skip connection
+        query = query + D_S + D_T
+
+        # offset
+        query_offset_left = query[:, :, 1:, :]
+        query_offset_right = query[:, :, :-1, :]
+
+        # pad 0
+        query_offset_left = F.pad(query_offset_left, (0, 0, 1, 0))
+        query_offset_right = F.pad(query_offset_right, (0, 0, 0, 1))
+
+        # left attention
+        attention_left = self.attention_left(query, query_offset_left,
+                                             query_offset_left)
+        # Add skip connection, run through normalization and finally dropout
+        x = self.dropout_left(self.norm1_left(attention_left + query))
+        forward = self.feed_forward(x)
+        out_left = self.dropout_left(self.norm2_left(forward + x))
+
+        # right attention
+        attention_right = self.attention_right(query, query_offset_right,
+                                               query_offset_right)
+        # Add skip connection, run through normalization and finally dropout
+        x = self.dropout_right(self.norm1_right(attention_right + query))
+        forward = self.feed_forward(x)
+        out_right = self.dropout_right(self.norm2_right(forward + x))
+
+        # gate fusion
+        # 融合 STransformer and GCN
+        g = torch.sigmoid(self.fc_left(out_left) + self.fc_right(out_right))
+        out = g * out_left + (1 - g) * out_right
+        return out
+
+
 class STTransformerBlock(nn.Module):
     def __init__(self, embed_size, heads, adj, time_num, cheb_K, dropout,
                  forward_expansion, device):
         super(STTransformerBlock, self).__init__()
-        self.shard_termporal_embedding = TemporalEmbedding(
+
+        self.adj = adj.to(device)
+
+        self.shared_spatial_embedding = SpatialEmbedding(
+            self.adj.shape[0], embed_size)
+
+        self.shared_termporal_embedding = TemporalEmbedding(
             embed_size, time_num)
 
-        self.STransformer = STransformer(embed_size, heads, adj, cheb_K,
-                                         dropout, forward_expansion, device,
-                                         self.shard_termporal_embedding)
-        self.TTransformer = TTransformer(embed_size, heads, dropout,
-                                         forward_expansion,
-                                         self.shard_termporal_embedding)
+        self.STransformer = STransformer(
+            embed_size,
+            heads,
+            self.adj,
+            cheb_K,
+            dropout,
+            forward_expansion,
+        )
+        self.TTransformer = TTransformer(
+            embed_size,
+            heads,
+            dropout,
+            forward_expansion,
+        )
+
+        self.Crosstransformer = Crosstransformer(
+            embed_size,
+            heads,
+            dropout,
+            forward_expansion,
+        )
 
         self.norm1 = nn.LayerNorm(embed_size)
         self.norm2 = nn.LayerNorm(embed_size)
+        self.norm3 = nn.LayerNorm(embed_size)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         # value,  key, query: [N, T, C] [B, N, T, C]
         # Add skip connection,run through normalization and finally dropout
-        x1 = self.norm1(self.STransformer(x) + x)  #(B, N, T, C)
-        x2 = self.dropout(self.norm2(self.TTransformer(x1) + x1))
-        return x2
+
+        # spatial and temporal embedding
+        B, N, T, C = x.shape
+
+        D_S = self.shared_spatial_embedding(self.adj)  # [N, C]
+        D_S = D_S.expand(B, T, N, C)  #[B, T, N, C]相当于在第2维复制了T份, 第一维复制B份
+        D_S = D_S.permute(0, 2, 1, 3)  #[B, N, T, C]
+
+        # D_T
+        D_T = self.shared_temporal_embedding(torch.arange(0, T).to(x.device))
+
+        x1 = self.norm1(self.STransformer(x, D_S, D_T) + x)  #(B, N, T, C)
+        x2 = self.norm2(self.TTransformer(x1, D_T) + x1)
+        x3 = self.dropout(self.norm3(self.Crosstransformer(x2, D_S, D_T) + x2))
+        return x3
+
 
 class Encoder(nn.Module):
     # 堆叠多层 ST-Transformer Block
@@ -292,13 +373,13 @@ class Encoder(nn.Module):
         self.device = device
         self.layers = nn.ModuleList([
             STTransformerBlock(embed_size,
-                                heads,
-                                adj,
-                                time_num,
-                                cheb_K,
-                                dropout=dropout,
-                                forward_expansion=forward_expansion,
-                                device=self.device) for _ in range(num_layers)
+                               heads,
+                               adj,
+                               time_num,
+                               cheb_K,
+                               dropout=dropout,
+                               forward_expansion=forward_expansion,
+                               device=self.device) for _ in range(num_layers)
         ])
 
         self.dropout = nn.Dropout(dropout)
@@ -310,6 +391,7 @@ class Encoder(nn.Module):
         for layer in self.layers:
             out = layer(out)
         return out
+
 
 class Transformer(nn.Module):
     def __init__(
@@ -332,6 +414,7 @@ class Transformer(nn.Module):
         ## scr: [N, T, C]   [B, N, T, C]
         enc_src = self.encoder(src)
         return enc_src  # [B, N, T, C]
+
 
 class STTransformer(nn.Module):
     def __init__(self,
@@ -391,16 +474,16 @@ class STTransformer(nn.Module):
 if __name__ == '__main__':
     #TODO the temporal embedding (0, T) has bug!
     N = 25
-    A = torch.randint(0, 2, (N, N))           # 邻接矩阵
-    in_channels=1   # 输入通道数。只有速度信息，所以通道为1
-    embed_size=64   # Transformer通道数
+    A = torch.randint(0, 2, (N, N))  # 邻接矩阵
+    in_channels = 1  # 输入通道数。只有速度信息，所以通道为1
+    embed_size = 64  # Transformer通道数
     time_num = 288  # 1天时间间隔数量
-    num_layers=1    # Spatial-temporal block 堆叠层数
-    T_dim=12        # 输入时间维度。 输入前1小时数据，所以 60min/5min = 12
-    output_T_dim=3  # 输出时间维度。预测未来15,30,45min速度
-    cheb_K = 2 # Order for Chebyshev Polynomials (Eq 2)
-    forward_expansion = 4 # Dimension of Feed Forward Network: embed_size --> embed_size * forward_expansion --> embed_size
-    heads=1         # transformer head 数量。 时、空transformer头数量相同
+    num_layers = 1  # Spatial-temporal block 堆叠层数
+    T_dim = 12  # 输入时间维度。 输入前1小时数据，所以 60min/5min = 12
+    output_T_dim = 3  # 输出时间维度。预测未来15,30,45min速度
+    cheb_K = 2  # Order for Chebyshev Polynomials (Eq 2)
+    forward_expansion = 4  # Dimension of Feed Forward Network: embed_size --> embed_size * forward_expansion --> embed_size
+    heads = 1  # transformer head 数量。 时、空transformer头数量相同
 
     model = STTransformer(
         A,
@@ -414,6 +497,6 @@ if __name__ == '__main__':
         cheb_K,
         forward_expansion,
     )
-    x = torch.randn(3,in_channels,N, T_dim)
+    x = torch.randn(3, in_channels, N, T_dim)
     out = model(x)
     print(out.shape)
