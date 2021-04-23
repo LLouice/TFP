@@ -1,11 +1,10 @@
 import numpy as np
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .gcn import GraphConvNet
 from .embed import SpatialEmbedding, TemporalEmbedding
+from .gcn import GraphConvNet
 
 
 class ScaledDotProductAttention(nn.Module):
@@ -32,7 +31,6 @@ class ScaledDotProductAttention(nn.Module):
         attn = F.softmax(scores, dim=-1)
         context = torch.matmul(attn, V)
         return context
-
 
 class SMultiHeadAttention(nn.Module):
     def __init__(self, embed_size, heads):
@@ -128,7 +126,6 @@ class TMultiHeadAttention(nn.Module):
         output = self.fc_out(context)
         return output
 
-
 class STransformer(nn.Module):
     def __init__(self, embed_size, heads, adj, cheb_K, dropout,
                  forward_expansion, device, shared_temporal_embedding):
@@ -211,7 +208,6 @@ class STransformer(nn.Module):
 
         return out  #(B, N, T, C)
 
-
 class TTransformer(nn.Module):
     def __init__(self, embed_size, heads, dropout, forward_expansion,
                  shared_temporal_embedding):
@@ -251,7 +247,6 @@ class TTransformer(nn.Module):
         out = self.dropout(self.norm2(forward + x))
         return out
 
-
 class STTransformerBlock(nn.Module):
     def __init__(self, embed_size, heads, adj, time_num, cheb_K, dropout,
                  forward_expansion, device):
@@ -277,8 +272,6 @@ class STTransformerBlock(nn.Module):
         x2 = self.dropout(self.norm2(self.TTransformer(x1) + x1))
         return x2
 
-
-# Encoder
 class Encoder(nn.Module):
     # 堆叠多层 ST-Transformer Block
     def __init__(
@@ -318,8 +311,6 @@ class Encoder(nn.Module):
             out = layer(out)
         return out
 
-
-# Transformer
 class Transformer(nn.Module):
     def __init__(
             self,
@@ -342,8 +333,6 @@ class Transformer(nn.Module):
         enc_src = self.encoder(src)
         return enc_src  # [B, N, T, C]
 
-
-# ST Transformer: Total Model
 class STTransformer(nn.Module):
     def __init__(self,
                  adj,
@@ -370,7 +359,7 @@ class STTransformer(nn.Module):
                                        time_num,
                                        forward_expansion,
                                        cheb_K,
-                                       dropout=0,
+                                       dropout=dropout,
                                        device=device)
 
         # 缩小时间维度。  例：T_dim=12到output_T_dim=3，输入12维降到输出3维

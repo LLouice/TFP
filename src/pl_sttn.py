@@ -42,7 +42,8 @@ class Net(pl.LightningModule):
         self.model = STTransformer(adj[0], args.in_dim, args.embed_size,
                                    args.time_num, args.num_layers, args.T_dim,
                                    args.output_T_dim, args.heads, 0,
-                                   args.forward_expansion)
+                                   args.forward_expansion,
+                                   device=args.device)
 
         for name, param in self.model.named_parameters():
             if "conv" in name and "weight" in name:
@@ -121,7 +122,7 @@ class Net(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, y = batch
-        output = self(x)  # [B, C, N ,T']
+        output = self(x)  # [B, C=1, N ,T']
         predict = self.scaler.inverse_transform(output)
         assert predict.shape[1] == 1
         mae, mape, rmse = calc_metrics(predict.squeeze(1), y, null_val=0.0)
@@ -132,8 +133,7 @@ class Net(pl.LightningModule):
 
     def _dev_setp(self, batch, batch_idx):
         x, y = batch
-        inp = F.pad(x, (1, 0, 0, 0))
-        output = self(inp).transpose(1, 3)  #[B, C, N, T] ?
+        output = self(x)  #[B, C, N, T]
         predict = self.scaler.inverse_transform(output)
         predict = torch.clamp(predict, min=0., max=70.)
 
@@ -310,6 +310,8 @@ def main():
         gradient_clip_val=3.0,
         callbacks=[early_stopping],
         # resume_from_checkpoint="ckpts/foo.ckpt"
+        # limit_train_batches=4,
+        # limit_val_batches=4,
     )
 
     if conf.lr_find:
