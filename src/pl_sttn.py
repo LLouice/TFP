@@ -43,6 +43,7 @@ class Net(pl.LightningModule):
                                    args.time_num, args.num_layers, args.T_dim,
                                    args.output_T_dim, args.heads, 0,
                                    args.forward_expansion,
+                                   dropout=args.dropout,
                                    device=args.device)
 
         for name, param in self.model.named_parameters():
