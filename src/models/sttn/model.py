@@ -3,8 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .embed import SpatialEmbedding, TemporalEmbedding
-from .gcn import GraphConvNet
+from embed import SpatialEmbedding, TemporalEmbedding
+from gcn import GraphConvNet
 
 
 class ScaledDotProductAttention(nn.Module):
@@ -254,6 +254,9 @@ class Crosstransformer(nn.Module):
         )
         self.dropout_right = nn.Dropout(dropout)
 
+        self.fc_left = nn.Linear(embed_size, embed_size)
+        self.fc_right = nn.Linear(embed_size, embed_size)
+
     def forward(self, inp, D_S, D_T):
         query = inp
         B, N, T, C = query.shape
@@ -275,7 +278,7 @@ class Crosstransformer(nn.Module):
                                              query_offset_left)
         # Add skip connection, run through normalization and finally dropout
         x = self.dropout_left(self.norm1_left(attention_left + query))
-        forward = self.feed_forward(x)
+        forward = self.feed_forward_left(x)
         out_left = self.dropout_left(self.norm2_left(forward + x))
 
         # right attention
@@ -283,7 +286,7 @@ class Crosstransformer(nn.Module):
                                                query_offset_right)
         # Add skip connection, run through normalization and finally dropout
         x = self.dropout_right(self.norm1_right(attention_right + query))
-        forward = self.feed_forward(x)
+        forward = self.feed_forward_right(x)
         out_right = self.dropout_right(self.norm2_right(forward + x))
 
         # gate fusion
@@ -303,7 +306,7 @@ class STTransformerBlock(nn.Module):
         self.shared_spatial_embedding = SpatialEmbedding(
             self.adj.shape[0], embed_size)
 
-        self.shared_termporal_embedding = TemporalEmbedding(
+        self.shared_temporal_embedding = TemporalEmbedding(
             embed_size, time_num)
 
         self.STransformer = STransformer(
@@ -486,7 +489,7 @@ if __name__ == '__main__':
     heads = 1  # transformer head 数量。 时、空transformer头数量相同
 
     model = STTransformer(
-        A,
+        A.float(),
         in_channels,
         embed_size,
         time_num,
