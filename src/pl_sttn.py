@@ -305,7 +305,7 @@ def main():
         check_val_every_n_epoch=conf.check_val,
         checkpoint_callback=checkpoint_callback,
         num_sanity_val_steps=0,
-        progress_bar_refresh_rate=conf.pb_rate,
+        # progress_bar_refresh_rate=conf.pb_rate,
         distributed_backend=distributed_backend,
         logger=tb_logger,
         gradient_clip_val=3.0,

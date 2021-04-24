@@ -3,8 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from embed import SpatialEmbedding, TemporalEmbedding
-from gcn import GraphConvNet
+from .embed import SpatialEmbedding, TemporalEmbedding
+from .gcn import GraphConvNet
 
 
 class ScaledDotProductAttention(nn.Module):
