@@ -14,7 +14,7 @@ class Config():
         sub_parser.add_argument("--wd", type=float, default=1e-4)
         sub_parser.add_argument('--opt',
                                 type=str,
-                                choices=["adam", "adamw", "sgd"],
+                                choices=["adam", "adamw", "sgd", "radam"],
                                 default="adamw")
 
         sub_parser.add_argument('--sched',
