@@ -39,9 +39,15 @@ class Net(pl.LightningModule):
         self.scaler = scaler
         self._logger = logger
 
-        self.model = STTransformer(adj[0], args.in_dim, args.embed_size,
-                                   args.time_num, args.num_layers, args.T_dim,
-                                   args.output_T_dim, args.heads, 0,
+        self.model = STTransformer(adj[0],
+                                   args.in_dim,
+                                   args.embed_size,
+                                   args.time_num,
+                                   args.num_layers,
+                                   args.T_dim,
+                                   args.output_T_dim,
+                                   args.heads,
+                                   0,
                                    args.forward_expansion,
                                    dropout=args.dropout,
                                    device=args.device)
@@ -84,7 +90,10 @@ class Net(pl.LightningModule):
         parser.add_argument('--randomadj',
                             action='store_true',
                             help='whether random initialize adaptive adj')
-        parser.add_argument('--time_num', type=int, default=288, help='time stamp num')
+        parser.add_argument('--time_num',
+                            type=int,
+                            default=288,
+                            help='time stamp num')
         parser.add_argument('--T_dim', type=int, default=12, help='')
         parser.add_argument('--output_T_dim', type=int, default=3, help='')
         parser.add_argument('--embed_size',
@@ -95,7 +104,10 @@ class Net(pl.LightningModule):
                             type=int,
                             default=2,
                             help='inputs dimension')
-        parser.add_argument('--num_layers', type=int, default=3, help='number of ST Block')
+        parser.add_argument('--num_layers',
+                            type=int,
+                            default=3,
+                            help='number of ST Block')
         parser.add_argument('--heads',
                             type=int,
                             default=1,
@@ -108,6 +120,10 @@ class Net(pl.LightningModule):
                             type=float,
                             default=0.3,
                             help='dropout rate')
+        parser.add_argument('--clip',
+                            type=float,
+                            default=3.0,
+                            help='gradient clip value')
         parser.add_argument(
             '--n_obs',
             default=None,
@@ -199,11 +215,10 @@ class Net(pl.LightningModule):
         elif self.hparams.opt == "radam":
             from radam import RAdam
             optimizer = RAdam(self.parameters(),
-                                        lr=lr,
-                                        weight_decay=weight_decay)
+                              lr=lr,
+                              weight_decay=weight_decay)
             self._logger.info(
-                f"use radam optimizer, lr: {lr}, weight_decay: {weight_decay}"
-            )
+                f"use radam optimizer, lr: {lr}, weight_decay: {weight_decay}")
 
         scheduler = None
         if self.hparams.sched == "exp":
@@ -318,7 +333,7 @@ def main():
         # progress_bar_refresh_rate=conf.pb_rate,
         distributed_backend=distributed_backend,
         logger=tb_logger,
-        gradient_clip_val=3.0,
+        gradient_clip_val=conf.clip,
         callbacks=[early_stopping],
         # resume_from_checkpoint="ckpts/foo.ckpt"
         # limit_train_batches=4,
