@@ -196,6 +196,15 @@ class Net(pl.LightningModule):
             self._logger.info(
                 f"use sgd optimizer, lr: {lr}, momentum: 0.9 weight_decay: {weight_decay}"
             )
+        elif self.hparams.opt == "radam":
+            from radam import RAdam
+            optimizer = RAdam(self.parameters(),
+                                        lr=lr,
+                                        weight_decay=weight_decay)
+            self._logger.info(
+                f"use radam optimizer, lr: {lr}, weight_decay: {weight_decay}"
+            )
+
         scheduler = None
         if self.hparams.sched == "exp":
             scheduler = dict(lr_scheduler=torch.optim.lr_scheduler.LambdaLR(
@@ -222,7 +231,8 @@ class Net(pl.LightningModule):
                              interval="step")
             self._logger.info(f"use OneCycleLR, max_lr: {lr}")
         ret = dict(optimizer=optimizer)
-        ret.update(scheduler)
+        if scheduler:
+            ret.update(scheduler)
         return ret
 
 

@@ -19,7 +19,7 @@ class Config():
 
         sub_parser.add_argument('--sched',
                                 type=str,
-                                choices=["exp", "onecycle"],
+                                choices=["exp", "onecycle", "none"],
                                 default="exp")
 
         # 'dataloader
