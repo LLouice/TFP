@@ -335,6 +335,7 @@ def main():
         logger=tb_logger,
         gradient_clip_val=conf.clip,
         callbacks=[early_stopping],
+        stochastic_weight_avg=conf.swa,
         # resume_from_checkpoint="ckpts/foo.ckpt"
         # limit_train_batches=4,
         # limit_val_batches=4,

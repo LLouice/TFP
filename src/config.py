@@ -21,6 +21,10 @@ class Config():
                                 type=str,
                                 choices=["exp", "onecycle", "none"],
                                 default="exp")
+        sub_parser.add_argument('--swa',
+                                type=str,
+                                choices=["true", "false"],
+                                default="false")
 
         # 'dataloader
         sub_parser = parser.add_argument_group("dataloader")
@@ -82,9 +86,7 @@ class Config():
         # "program params"
         sub_parser = parser.add_argument_group("program")
         sub_parser.add_argument("--data_pt", type=str, default="data/data.h5")
-        sub_parser.add_argument("--log_file",
-                                type=str,
-                                default="runs/logs/")
+        sub_parser.add_argument("--log_file", type=str, default="runs/logs/")
         sub_parser.add_argument("--log_level",
                                 type=str,
                                 choices=["info", "debug", "warning"],
