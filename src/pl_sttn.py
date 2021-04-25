@@ -49,8 +49,7 @@ class Net(pl.LightningModule):
                                    args.heads,
                                    0,
                                    args.forward_expansion,
-                                   dropout=args.dropout,
-                                   device=args.device)
+                                   dropout=args.dropout)
 
         for name, param in self.model.named_parameters():
             if "conv" in name and "weight" in name:

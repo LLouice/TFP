@@ -174,7 +174,7 @@ class STransformer(nn.Module):
         #     #             print(o.shape)
         #     X_G = torch.cat((X_G, o), dim=2)  # cat on T dim
         # why not norm adj? it has norm?
-        X_G = self.gcn(query, [self.adj])  #[B C N T]
+        X_G = self.gcn(query, [self.adj.to(x.device)])  #[B C N T]
         X_G = X_G.permute(0, 2, 3, 1)
 
         # 最后X_G [B, N, T, C]
@@ -298,10 +298,10 @@ class Crosstransformer(nn.Module):
 
 class STTransformerBlock(nn.Module):
     def __init__(self, embed_size, heads, adj, time_num, cheb_K, dropout,
-                 forward_expansion, device):
+                 forward_expansion):
         super(STTransformerBlock, self).__init__()
 
-        self.adj = adj.to(device)
+        self.adj = adj
 
         self.shared_spatial_embedding = SpatialEmbedding(
             self.adj.shape[0], embed_size)
@@ -343,7 +343,7 @@ class STTransformerBlock(nn.Module):
         # spatial and temporal embedding
         B, N, T, C = x.shape
 
-        D_S = self.shared_spatial_embedding(self.adj)  # [N, C]
+        D_S = self.shared_spatial_embedding(self.adj.to(x.device))  # [N, C]
         D_S = D_S.expand(B, T, N, C)  #[B, T, N, C]相当于在第2维复制了T份, 第一维复制B份
         D_S = D_S.permute(0, 2, 1, 3)  #[B, N, T, C]
 
@@ -365,7 +365,6 @@ class Encoder(nn.Module):
         heads,
         adj,
         time_num,
-        device,
         forward_expansion,
         cheb_K,
         dropout,
@@ -373,16 +372,16 @@ class Encoder(nn.Module):
 
         super(Encoder, self).__init__()
         self.embed_size = embed_size
-        self.device = device
         self.layers = nn.ModuleList([
-            STTransformerBlock(embed_size,
-                               heads,
-                               adj,
-                               time_num,
-                               cheb_K,
-                               dropout=dropout,
-                               forward_expansion=forward_expansion,
-                               device=self.device) for _ in range(num_layers)
+            STTransformerBlock(
+                embed_size,
+                heads,
+                adj,
+                time_num,
+                cheb_K,
+                dropout=dropout,
+                forward_expansion=forward_expansion,
+            ) for _ in range(num_layers)
         ])
 
         self.dropout = nn.Dropout(dropout)
@@ -398,20 +397,19 @@ class Encoder(nn.Module):
 
 class Transformer(nn.Module):
     def __init__(
-            self,
-            adj,
-            embed_size,
-            num_layers,
-            heads,
-            time_num,
-            forward_expansion,  ##？
-            cheb_K,
-            dropout,
-            device="cpu"):
+        self,
+        adj,
+        embed_size,
+        num_layers,
+        heads,
+        time_num,
+        forward_expansion,  ##？
+        cheb_K,
+        dropout,
+    ):
         super(Transformer, self).__init__()
-        self.device = torch.device(device)
         self.encoder = Encoder(embed_size, num_layers, heads, adj, time_num,
-                               self.device, forward_expansion, cheb_K, dropout)
+                               forward_expansion, cheb_K, dropout)
 
     def forward(self, src):
         ## scr: [N, T, C]   [B, N, T, C]
@@ -420,33 +418,35 @@ class Transformer(nn.Module):
 
 
 class STTransformer(nn.Module):
-    def __init__(self,
-                 adj,
-                 in_channels,
-                 embed_size,
-                 time_num,
-                 num_layers,
-                 T_dim,
-                 output_T_dim,
-                 heads,
-                 cheb_K,
-                 forward_expansion,
-                 dropout=0.1,
-                 device="cpu"):
+    def __init__(
+        self,
+        adj,
+        in_channels,
+        embed_size,
+        time_num,
+        num_layers,
+        T_dim,
+        output_T_dim,
+        heads,
+        cheb_K,
+        forward_expansion,
+        dropout=0.1,
+    ):
         super(STTransformer, self).__init__()
 
         self.forward_expansion = forward_expansion
         # 第一次卷积扩充通道数 1x1 conv
         self.conv1 = nn.Conv2d(in_channels, embed_size, 1)
-        self.transformer = Transformer(adj,
-                                       embed_size,
-                                       num_layers,
-                                       heads,
-                                       time_num,
-                                       forward_expansion,
-                                       cheb_K,
-                                       dropout=dropout,
-                                       device=device)
+        self.transformer = Transformer(
+            adj,
+            embed_size,
+            num_layers,
+            heads,
+            time_num,
+            forward_expansion,
+            cheb_K,
+            dropout=dropout,
+        )
 
         # 缩小时间维度。  例：T_dim=12到output_T_dim=3，输入12维降到输出3维
         self.conv2 = nn.Conv2d(T_dim, output_T_dim, 1)
