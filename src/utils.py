@@ -56,7 +56,7 @@ def mask_and_fillna(loss, mask):
 # ------------
 def make_graph_inputs(args):
     sensor_ids, sensor_id_to_ind, adj_mx = load_adj(args.adjdata, args.adjtype)
-    supports = [torch.tensor(i).to(args.device) for i in adj_mx]
+    supports = [torch.tensor(i) for i in adj_mx]
     aptinit = None if args.randomadj else supports[
         0]  # ignored without do_graph_conv and add_apt_adj
     if args.aptonly:
