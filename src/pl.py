@@ -126,7 +126,7 @@ class Net(pl.LightningModule):
         parser.add_argument('--checkpoint', type=str, help='')
         parser.add_argument('--activation',
                             type=str,
-                            choices=["relu", "swish"],
+                            choices=["relu", "swish", "mish"],
                             default="relu",
                             help='activation')
         return parent_parser
