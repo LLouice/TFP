@@ -8,18 +8,22 @@ def nconv(x, A):
     """Multiply x by adjacency matrix along source node axis"""
     return torch.einsum('ncvl,vw->ncwl', (x, A)).contiguous()
 
+
 class GraphConvNet(nn.Module):
     def __init__(self, c_in, c_out, dropout, support_len=3, order=2):
         super().__init__()
         c_in = (order * support_len + 1) * c_in
-        self.final_conv = Conv2d(c_in, c_out, (1, 1), padding=(0, 0), stride=(1, 1), bias=True)
+        self.final_conv = Conv2d(c_in,
+                                 c_out, (1, 1),
+                                 padding=(0, 0),
+                                 stride=(1, 1),
+                                 bias=True)
         self.dropout = dropout
         self.order = order
         self._init_parameters()
 
     def _init_parameters(self):
         nn.init.xavier_normal_(self.final_conv.weight.data)
-
 
     def forward(self, x, support: list):
         out = [x]
@@ -38,11 +42,26 @@ class GraphConvNet(nn.Module):
 
 
 class GWNet(nn.Module):
-    def __init__(self, device, num_nodes, dropout=0.3, supports=None, do_graph_conv=True,
-                 addaptadj=True, aptinit=None, in_dim=2, out_dim=12,
-                 residual_channels=32, dilation_channels=32, cat_feat_gc=False,
-                 skip_channels=256, end_channels=512, kernel_size=2, blocks=4, layers=2,
-                 apt_size=10):
+    def __init__(self,
+                 device,
+                 num_nodes,
+                 dropout=0.3,
+                 supports=None,
+                 do_graph_conv=True,
+                 addaptadj=True,
+                 aptinit=None,
+                 in_dim=2,
+                 out_dim=12,
+                 residual_channels=32,
+                 dilation_channels=32,
+                 cat_feat_gc=False,
+                 skip_channels=256,
+                 end_channels=512,
+                 kernel_size=2,
+                 blocks=4,
+                 layers=2,
+                 apt_size=10,
+                 activate=F.relu):
         super().__init__()
         self.dropout = dropout
         self.blocks = blocks
@@ -50,12 +69,13 @@ class GWNet(nn.Module):
         self.do_graph_conv = do_graph_conv
         self.cat_feat_gc = cat_feat_gc
         self.addaptadj = addaptadj
-
+        self.activate = activate
 
         if self.cat_feat_gc:
-            self.start_conv = nn.Conv2d(in_channels=1,  # hard code to avoid errors
-                                        out_channels=residual_channels,
-                                        kernel_size=(1, 1))
+            self.start_conv = nn.Conv2d(
+                in_channels=1,  # hard code to avoid errors
+                out_channels=residual_channels,
+                kernel_size=(1, 1))
             self.cat_feature_conv = nn.Conv2d(in_channels=in_dim - 1,
                                               out_channels=residual_channels,
                                               kernel_size=(1, 1))
@@ -70,53 +90,77 @@ class GWNet(nn.Module):
         self.supports_len = len(self.fixed_supports)
         if do_graph_conv and addaptadj:
             if aptinit is None:
-                nodevecs = torch.randn(num_nodes, apt_size), torch.randn(apt_size, num_nodes)
+                nodevecs = torch.randn(num_nodes, apt_size), torch.randn(
+                    apt_size, num_nodes)
             else:
                 nodevecs = self.svd_init(apt_size, aptinit)
             self.supports_len += 1
-            self.nodevec1, self.nodevec2 = [Parameter(n.to(device), requires_grad=True) for n in nodevecs]
+            self.nodevec1, self.nodevec2 = [
+                Parameter(n.to(device), requires_grad=True) for n in nodevecs
+            ]
 
         depth = list(range(blocks * layers))
 
         # 1x1 convolution for residual and skip connections (slightly different see docstring)
-        self.residual_convs = ModuleList([Conv1d(dilation_channels, residual_channels, (1, 1)) for _ in depth])
-        self.skip_convs = ModuleList([Conv1d(dilation_channels, skip_channels, (1, 1)) for _ in depth])
+        self.residual_convs = ModuleList([
+            Conv1d(dilation_channels, residual_channels, (1, 1)) for _ in depth
+        ])
+        self.skip_convs = ModuleList(
+            [Conv1d(dilation_channels, skip_channels, (1, 1)) for _ in depth])
         self.bn = ModuleList([BatchNorm2d(residual_channels) for _ in depth])
-        self.graph_convs = ModuleList([GraphConvNet(dilation_channels, residual_channels, dropout, support_len=self.supports_len)
-                                              for _ in depth])
+        self.graph_convs = ModuleList([
+            GraphConvNet(dilation_channels,
+                         residual_channels,
+                         dropout,
+                         support_len=self.supports_len) for _ in depth
+        ])
 
         self.filter_convs = ModuleList()
         self.gate_convs = ModuleList()
         for b in range(blocks):
             additional_scope = kernel_size - 1
-            D = 1 # dilation
+            D = 1  # dilation
             for i in range(layers):
                 # dilated convolutions
-                self.filter_convs.append(Conv2d(residual_channels, dilation_channels, (1, kernel_size), dilation=D))
-                self.gate_convs.append(Conv1d(residual_channels, dilation_channels, (1, kernel_size), dilation=D))
+                self.filter_convs.append(
+                    Conv2d(residual_channels,
+                           dilation_channels, (1, kernel_size),
+                           dilation=D))
+                self.gate_convs.append(
+                    Conv1d(residual_channels,
+                           dilation_channels, (1, kernel_size),
+                           dilation=D))
                 D *= 2
                 receptive_field += additional_scope
                 additional_scope *= 2
         self.receptive_field = receptive_field
 
-        self.end_conv_1 = Conv2d(skip_channels, end_channels, (1, 1), bias=True)
+        self.end_conv_1 = Conv2d(skip_channels,
+                                 end_channels, (1, 1),
+                                 bias=True)
         self.end_conv_2 = Conv2d(end_channels, out_dim, (1, 1), bias=True)
-
 
     @staticmethod
     def svd_init(apt_size, aptinit):
         m, p, n = torch.svd(aptinit)
-        nodevec1 = torch.mm(m[:, :apt_size], torch.diag(p[:apt_size] ** 0.5))
-        nodevec2 = torch.mm(torch.diag(p[:apt_size] ** 0.5), n[:, :apt_size].t())
+        nodevec1 = torch.mm(m[:, :apt_size], torch.diag(p[:apt_size]**0.5))
+        nodevec2 = torch.mm(torch.diag(p[:apt_size]**0.5), n[:, :apt_size].t())
         return nodevec1, nodevec2
 
     @classmethod
     def from_args(cls, args, device, supports, aptinit, **kwargs):
-        defaults = dict(dropout=args.dropout, supports=supports,
-                        do_graph_conv=args.do_graph_conv, addaptadj=args.addaptadj, aptinit=aptinit,
-                        in_dim=args.in_dim, apt_size=args.apt_size, out_dim=args.seq_length,
-                        residual_channels=args.nhid, dilation_channels=args.nhid,
-                        skip_channels=args.nhid * 8, end_channels=args.nhid * 16,
+        defaults = dict(dropout=args.dropout,
+                        supports=supports,
+                        do_graph_conv=args.do_graph_conv,
+                        addaptadj=args.addaptadj,
+                        aptinit=aptinit,
+                        in_dim=args.in_dim,
+                        apt_size=args.apt_size,
+                        out_dim=args.seq_length,
+                        residual_channels=args.nhid,
+                        dilation_channels=args.nhid,
+                        skip_channels=args.nhid * 8,
+                        end_channels=args.nhid * 16,
                         cat_feat_gc=args.cat_feat_gc)
         defaults.update(**kwargs)
         model = cls(device, args.num_nodes, **defaults)
@@ -124,7 +168,8 @@ class GWNet(nn.Module):
 
     def load_checkpoint(self, state_dict):
         """It is assumed that ckpt was trained to predict a subset of timesteps."""
-        bk, wk = ['end_conv_2.bias', 'end_conv_2.weight']  # only weights that depend on seq_length
+        bk, wk = ['end_conv_2.bias', 'end_conv_2.weight'
+                  ]  # only weights that depend on seq_length
         b, w = state_dict.pop(bk), state_dict.pop(wk)
         self.load_state_dict(state_dict, strict=False)
         cur_state_dict = self.state_dict()
@@ -148,7 +193,9 @@ class GWNet(nn.Module):
         adjacency_matrices = self.fixed_supports
         # calculate the current adaptive adj matrix once per iteration
         if self.addaptadj:
-            adp = F.softmax(F.relu(torch.mm(self.nodevec1, self.nodevec2)), dim=1)
+            adp = F.softmax(self.activate(
+                torch.mm(self.nodevec1, self.nodevec2)),
+                            dim=1)
             adjacency_matrices = self.fixed_supports + [adp]
 
         # WaveNet layers
@@ -171,11 +218,12 @@ class GWNet(nn.Module):
             # parametrized skip connection
             s = self.skip_convs[i](x)  # what are we skipping??
             try:  # if i > 0 this works
-                skip = skip[:, :, :,  -s.size(3):]  # TODO(SS): Mean/Max Pool?
+                skip = skip[:, :, :, -s.size(3):]  # TODO(SS): Mean/Max Pool?
             except:
                 skip = 0
             skip = s + skip
-            if i == (self.blocks * self.layers - 1):  # last X getting ignored anyway
+            if i == (self.blocks * self.layers -
+                     1):  # last X getting ignored anyway
                 break
 
             if self.do_graph_conv:
@@ -186,7 +234,8 @@ class GWNet(nn.Module):
             x = x + residual[:, :, :, -x.size(3):]  # TODO(SS): Mean/Max Pool?
             x = self.bn[i](x)
 
-        x = F.relu(skip)  # ignore last X?
-        x = F.relu(self.end_conv_1(x))
-        x = self.end_conv_2(x)  # downsample to (bs, seq_length, 207, nfeatures)
+        x = self.activate(skip)  # ignore last X?
+        x = self.activate(self.end_conv_1(x))
+        x = self.end_conv_2(
+            x)  # downsample to (bs, seq_length, 207, nfeatures)
         return x

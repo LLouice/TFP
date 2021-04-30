@@ -14,6 +14,7 @@ from pytorch_lightning.callbacks import (Callback, EarlyStopping,
                                          LearningRateMonitor, ModelCheckpoint)
 from pytorch_lightning.loggers import TensorBoardLogger
 from utils import calc_metrics, get_logger
+from activation import get_activation
 
 
 class TimeCallback(Callback):
@@ -53,7 +54,8 @@ class Net(pl.LightningModule):
                            dilation_channels=args.nhid,
                            skip_channels=args.nhid * 8,
                            end_channels=args.nhid * 16,
-                           cat_feat_gc=args.cat_feat_gc)
+                           cat_feat_gc=args.cat_feat_gc,
+                           activate=get_activation(self.hparams.activation))
 
         for name, param in self.model.named_parameters():
             if "conv" in name and "weight" in name:
@@ -122,6 +124,11 @@ class Net(pl.LightningModule):
         parser.add_argument('--cat_feat_gc', action='store_true')
         parser.add_argument('--fill_zeroes', action='store_true')
         parser.add_argument('--checkpoint', type=str, help='')
+        parser.add_argument('--activation',
+                            type=str,
+                            choices=["relu", "swish"],
+                            default="relu",
+                            help='activation')
         return parent_parser
 
     def forward(self, x):
@@ -154,7 +161,7 @@ class Net(pl.LightningModule):
         if stage:
             maes = []
             mapes = []
-            rmses= []
+            rmses = []
             for (mae, mape, rmse) in outputs:
                 maes.append(mae)
                 mapes.append(mape)
@@ -188,37 +195,46 @@ class Net(pl.LightningModule):
             optimizer = torch.optim.AdamW(self.parameters(),
                                           lr=lr,
                                           weight_decay=weight_decay)
-            self._logger.info(f"use adamw optimizer, lr: {lr}, weight_decay: {weight_decay}")
+            self._logger.info(
+                f"use adamw optimizer, lr: {lr}, weight_decay: {weight_decay}")
         elif self.hparams.opt == "adam":
             optimizer = torch.optim.Adam(self.parameters(),
                                          lr=lr,
                                          weight_decay=weight_decay)
-            self._logger.info(f"use adami optimizer, lr: {lr}, weight_decay: {weight_decay}")
+            self._logger.info(
+                f"use adami optimizer, lr: {lr}, weight_decay: {weight_decay}")
         elif self.hparams.opt == "sgd":
             optimizer = torch.optim.SGD(self.parameters(),
                                         lr=lr,
                                         weight_decay=weight_decay,
                                         momentum=0.9)
-            self._logger.info(f"use sgd optimizer, lr: {lr}, momentum: 0.9 weight_decay: {weight_decay}")
+            self._logger.info(
+                f"use sgd optimizer, lr: {lr}, momentum: 0.9 weight_decay: {weight_decay}"
+            )
         scheduler = None
         if self.hparams.sched == "exp":
-            scheduler = dict(lr_scheduler=torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda epoch: self.hparams.lr_decay**epoch))
+            scheduler = dict(lr_scheduler=torch.optim.lr_scheduler.LambdaLR(
+                optimizer,
+                lr_lambda=lambda epoch: self.hparams.lr_decay**epoch))
 
-            self._logger.info(f"use ExponentialLR, lr: {lr}, gamma: {self.hparams.lr_decay}")
-        elif self.hparams.sched ==  "onecycle":
-            scheduler = dict(lr_scheduler=torch.optim.lr_scheduler.OneCycleLR(optimizer,
-                                                         max_lr=lr,
-                                                         epochs=self.hparams.epos,
-                                                         steps_per_epoch=self.hparams.step_per_epoch,
-                                                         pct_start=0.25,
-                                                         anneal_strategy='cos',
-                                                         cycle_momentum=True,
-                                                         base_momentum=0.85,
-                                                         max_momentum=0.95,
-                                                         div_factor=25.0,
-                                                         final_div_factor=1e5,
-                                                         last_epoch=-1,
-                                                         ), interval="step")
+            self._logger.info(
+                f"use ExponentialLR, lr: {lr}, gamma: {self.hparams.lr_decay}")
+        elif self.hparams.sched == "onecycle":
+            scheduler = dict(lr_scheduler=torch.optim.lr_scheduler.OneCycleLR(
+                optimizer,
+                max_lr=lr,
+                epochs=self.hparams.epos,
+                steps_per_epoch=self.hparams.step_per_epoch,
+                pct_start=0.25,
+                anneal_strategy='cos',
+                cycle_momentum=True,
+                base_momentum=0.85,
+                max_momentum=0.95,
+                div_factor=25.0,
+                final_div_factor=1e5,
+                last_epoch=-1,
+            ),
+                             interval="step")
             self._logger.info(f"use OneCycleLR, max_lr: {lr}")
         ret = dict(optimizer=optimizer)
         ret.update(scheduler)
@@ -268,7 +284,7 @@ def main():
         filename="{epoch}-{val_mae:.4f}",
         save_top_k=1,
         verbose=True,
-        monitor='val_mae', 
+        monitor='val_mae',
         mode='min',
     )
 
@@ -284,8 +300,8 @@ def main():
                                    verbose=False,
                                    mode='min')
 
-    lr_monitor = LearningRateMonitor(logging_interval='step', log_momentum=True)
-
+    lr_monitor = LearningRateMonitor(logging_interval='step',
+                                     log_momentum=True)
 
     if conf.tpu:
         gpus = None
